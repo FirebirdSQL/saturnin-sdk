@@ -1,5 +1,5 @@
 #coding:utf-8
-"""A setuptools based setup module for saturnin-sdk package.
+"""A setuptools based setup module for saturnin-examples package.
 See:
 https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
@@ -21,9 +21,9 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 # Fields marked as "Optional" may be commented out.
 
 setup(
-    name='saturnin-sdk',
+    name='saturnin-sdk-examples',
     version='0.1',
-    description='Reference implementation of Firebird Butler specification(s) in Python',
+    description='Saturnin SDK Examples',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
     url='https://github.com/FirebirdSQL/saturnin-sdk',
@@ -53,7 +53,7 @@ setup(
     keywords='Firebird Butler Services ZeroMQ Saturnin SDK',
     packages=find_packages(),  # Required
     zip_safe=False,
-    install_requires=['pyzmq>=18.0.0', 'protobuf>=3.6.1'],
+    install_requires=['saturnin-sdk>=0.1', 'pyzmq>=18.0.0', 'protobuf>=3.6.1'],
     python_requires='>=3.6, <4',
     test_suite='nose.collector',
     data_files=[],
@@ -64,7 +64,17 @@ setup(
         'Funding': 'https://www.firebirdsql.org/en/donate/',
         'Source': 'https://github.com/FirebirdSQL/saturnin-sdk',
         },
-    entry_points={'console_scripts': ['runner = saturnin.sdk.tools.runner:main',
+    entry_points={'saturnin.service': ['roman = saturnin.service.roman.service:RomanServiceImpl',
+                                       'echo = saturnin.service.echo.service:EchoServiceImpl'
+                                      ],
+                  'saturnin.service.uid': ['roman = saturnin.service.roman.api:SERVICE_UID',
+                                           'echo = saturnin.service.echo.api:SERVICE_UID'
+                                          ],
+                  'saturnin.client': ['roman = saturnin.service.roman.client:RomanClient',
+                                      'echo = saturnin.service.echo.client:EchoClient'
                                      ],
+                  'saturnin.test': ['roman = saturnin.service.roman.test:TestRunner',
+                                    'echo = saturnin.service.echo.test:TestRunner'
+                                   ],
                  }
 )
