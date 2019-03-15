@@ -22,7 +22,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='saturnin-sdk',
-    version='0.1',
+    version='0.2',
     description='Reference implementation of Firebird Butler specification(s) in Python',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
