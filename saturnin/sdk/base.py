@@ -33,57 +33,18 @@
 
 "Saturnin SDK - Base classes and other definitions"
 
-from typing import Any, Dict, List, Sequence, ValuesView, Optional
+import sys
+from typing import Any, Dict, List, Sequence, Mapping, ValuesView, Optional
 from uuid import uuid5, NAMESPACE_OID, UUID
-from weakref import proxy, ref
-from enum import Enum, Flag, auto
+from weakref import proxy
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
-
-# pylint: disable=R0902, R0913
+from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, TService, \
+     TSession, TMessage, Origin, SocketMode, Direction, InvalidMessageError, ChannelError
 
 # Constants
 
 INTERNAL_ROUTE = b'INTERNAL'
-
-# firebird.butler.platform.saturnin-sdk
-PLATFORM_OID = '1.3.6.1.4.1.53446.1.2.0'
-PLATFORM_UID = uuid5(NAMESPACE_OID, PLATFORM_OID)
-PLATFORM_VERSION = '0.2'
-
-# firebird.butler.vendor.firebird
-VENDOR_OID = '1.3.6.1.4.1.53446.1.3.0'
-VENDOR_UID = uuid5(NAMESPACE_OID, VENDOR_OID)
-
-# Enums
-class Origin(Enum):
-    "Origin of received message in protocol context."
-    ANY = auto()
-    UNKNOWN = ANY
-    SERVICE = auto()
-    CLIENT = auto()
-    PROVIDER = SERVICE
-    CONSUMER = CLIENT
-
-class SocketMode(Enum):
-    "ZMQ socket mode"
-    UNKNOWN = auto()
-    BIND = auto()
-    CONNECT = auto()
-
-class Direction(Flag):
-    "ZMQ socket direction of transmission"
-    IN = auto()
-    OUT = auto()
-    BOTH = OUT | IN
-
-#  Exceptions
-class InvalidMessageError(Exception):
-    "A formal error was detected in a message"
-class ChannelError(Exception):
-    "Transmission channel error"
-class ServiceError(Exception):
-    "Error raised by service"
 
 # Functions
 def peer_role(my_role: Origin) -> Origin:
@@ -97,6 +58,19 @@ def get_unique_key(dict_: Dict[int, Any]) -> int:
         i += 1
     return i
 
+def load(spec: str) -> Any:
+    """Return object from module. Module is imported if necessary.
+
+Arguments:
+    :spec: Object specification in format module[.submodule.[submodule...]]:object_name
+
+"""
+    module_spec, name = spec.split(':')
+    if module_spec in sys.modules:
+        module = sys.modules[module_spec]
+    else:
+        module = __import__(module_spec, globals(), locals(), [name], 0)
+    return getattr(module, name)
 
 # Manager for ZMQ channels
 class ChannelManager:
@@ -107,10 +81,10 @@ class ChannelManager:
 Arguments:
     :context: ZMQ Context instance.
 """
-        self.ctx = context
-        self._ch: Dict[int, BaseChannel] = {}
-        self._poller = Poller()
-        self.__chmap = {}
+        self.ctx: Context = context
+        self._ch: Dict[int, TChannel] = {}
+        self._poller: Poller = Poller()
+        self.__chmap: Dict[Socket, TChannel] = {}
     def create_socket(self, socket_type: int, **kwargs) -> Socket:
         """Create new ZMQ socket.
 
@@ -122,7 +96,7 @@ Arguments:
         return self.ctx.socket(socket_type, **kwargs)
     def add(self, channel):
         """Add channel to the manager."""
-        channel._mngr = proxy(self) # pylint: disable=W0212
+        channel._mngr = proxy(self)
         i = get_unique_key(self._ch)
         channel.uid = i
         self._ch[i] = channel
@@ -130,13 +104,13 @@ Arguments:
     def remove(self, channel):
         """Remove channel from the manager."""
         self.unregister(channel)
-        channel._mngr = None # pylint: disable=W0212
+        channel._mngr = None
         channel.uid = None
         del self._ch[channel.uid]
     def is_registered(self, channel) -> bool:
         """Returns True if channel is registered in Poller."""
         assert channel.socket, "Channel socket not created"
-        return channel.socket in self._poller._map # pylint: disable=W0212
+        return channel.socket in self._poller._map
     def register(self, channel):
         """Register channel in Poller."""
         if not self.is_registered(channel):
@@ -154,7 +128,7 @@ Arguments:
     :timeout: The timeout in milliseconds. `None` value means `infinite`.
 
 Returns:
-    {BaseChannel: events} dictionary.
+    {TChannel: events} dictionary.
 """
         return dict((self.__chmap[skt], e) for skt, e in self._poller.poll(timeout))
     def shutdown(self, *args):
@@ -167,7 +141,7 @@ Arguments:
             self.unregister(chn)
             chn.close(*args)
 
-    channels: ValuesView = property(lambda self: self._ch.values(), # pylint: disable=W0212
+    channels: ValuesView = property(lambda self: self._ch.values(),
                                     doc="Channels associated with manager")
 
 # Base Classes
@@ -185,8 +159,7 @@ Abstract methods:
 Attributes:
     :data:  Sequence of data frames
 """
-    def __init__(self, protocol):
-        self._pr = ref(protocol)
+    def __init__(self):
         self.data: List[bytes] = []
     def from_zmsg(self, frames: Sequence) -> None:
         """Populate message data from sequence of ZMQ data frames.
@@ -228,7 +201,8 @@ bytes).
                 return True
         return False
 
-class BaseSession: # pylint: disable=R0903
+
+class BaseSession:
     """Base Peer Session class.
 
 Attributes:
@@ -236,49 +210,36 @@ Attributes:
     :endpoint: (str) Connected service endpoint address, if any
 """
     def __init__(self, routing_id: bytes):
-        self.routing_id = routing_id
+        self.routing_id: bytes = routing_id
         self.endpoint: Optional[str] = None
+
 
 class BaseProtocol:
     """Base class for protocol.
 
 The main purpose of protocol class is to validate ZMQ messages and create protocol messages.
-This base class uses :class:`BaseMessage` for all protocol messages. Child classes can
-use various `BaseMessage` descendants.
+This base class defines common interface for parsing and validation. Descendant classes
+typically add methods for creation of protocol messages.
 
-Attributes:
-   :uid:        UUID instance that identifies the protocol. MUST be set in child class.
-   :revision:   Protocol revision (default 1)
-   :on_invalid: Optional `ON_INVALID_CALLBACK` invoked when :meth:`is_valid()` detects an
-                invalid message.
+Class attributes:
+   :OID:        string with protocol OID (dot notation). MUST be set in child class.
+   :UID:        UUID instance that identifies the protocol. MUST be set in child class.
+   :REVISION:   Protocol revision (default 1)
 
 Abstract methods:
    :validate: Verifies that sequence of ZMQ data frames is a valid protocol message.
    :has_greeting: Returns True if protocol uses greeting messages.
-   :validate_greeting: Validates the introductory message from peer.
-   :create_session: Create peer session
+   :parse: Parse ZMQ message into protocol message.
 with peer.
 """
-    def __init__(self):
-        """Communication protocol.
-"""
-        # firebird.butler.protocol
-        self.uid: UUID = uuid5(NAMESPACE_OID, '1.3.6.1.4.1.53446.1.5')
-        self.revision: int = 1
-    def create_message(self) -> BaseMessage: # pylint: disable=R0201
-        """Create new base protocol message.
-
-Returns:
-   New instance of base message class used by protocol.
-"""
-        return BaseMessage(self)
+    OID: str = '1.3.6.1.4.1.53446.1.5' # firebird.butler.protocol
+    UID: UUID = uuid5(NAMESPACE_OID, OID)
+    REVISION: int = 1
     def has_greeting(self) -> bool:
         "Returns True if protocol uses greeting messages."
         raise NotImplementedError
-    def parse(self, zmsg: Sequence) -> BaseMessage:
+    def parse(self, zmsg: Sequence) -> TMessage:
         """Parse ZMQ message into protocol message.
-
-This method should be overridden in child classes, as the base class produces BaseMessage instances.
 
 Arguments:
     :zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
@@ -289,9 +250,7 @@ Returns:
 Raises:
     :InvalidMessageError: If message is not a valid protocol message.
 """
-        msg = self.create_message()
-        msg.from_zmsg(zmsg)
-        return msg
+        raise NotImplementedError
     def is_valid(self, zmsg: List, origin: Origin) -> bool:
         """Return True if ZMQ message is a valid protocol message, otherwise returns False.
 
@@ -329,14 +288,16 @@ Attributes:
     :routed:      True if channel uses internal routing
     :socket_type: ZMQ socket type.
     :direction:   Direction of transmission [default: SocketDirection.BOTH]
-    :mode:        BIND/CONNECT mode for socket.
-    :identity:    Identity value for ZMQ socket.
     :socket:      ZMQ socket for transmission of messages.
-    :handler:     Protocol handler used to process messages received from peer(s).
+    :handler:     Message handler used to process messages received from peer(s).
     :uid:         Unique channel ID used by channel manager.
-    :manager:     The channel manager to which this channel belongs.
     :mngr_poll:   True if channel should register its socket into manager Poller.
     :endpoints:   List of binded/connected endpoints.
+
+R/O attributes:
+    :mode:        BIND/CONNECT mode for socket.
+    :manager:     The channel manager to which this channel belongs.
+    :identity:    Identity value for ZMQ socket.
 
 Abstract methods:
    :create_socket: Create ZMQ socket for this channel.
@@ -348,17 +309,17 @@ Arguments:
     :identity: Identity for ZMQ socket.
     :mngr_poll: True to register into Channel Manager `Poller`.
 """
-        self.socket_type = None
-        self.direction = Direction.BOTH
-        self._identity = identity
-        self._mngr_poll = mngr_poll
-        self._send_timeout = send_timeout
-        self._mode = SocketMode.UNKNOWN
-        self.handler = None
-        self.uid = None
-        self._mngr = None
+        self.socket_type: int = None
+        self.direction: Direction = Direction.BOTH
+        self._identity: bytes = identity
+        self._mngr_poll: bool = mngr_poll
+        self._send_timeout: int = send_timeout
+        self._mode: SocketMode = SocketMode.UNKNOWN
+        self.handler: TMessageHandler = None
+        self.uid: int = None
+        self._mngr: ChannelManager = None
         self.socket: Socket = None
-        self.routed = False
+        self.routed: bool = False
         self.endpoints: List[str] = []
     def __set_mngr_poll(self, value: bool):
         "Sets mngr_poll."
@@ -493,17 +454,18 @@ Arguments:
 """
         self.socket.close(*args)
         if self.handler:
-            self.handler.on_close()
-    # pylint: disable=W0212
+            self.handler.closing()
+
     mode: SocketMode = property(lambda self: self._mode, doc="ZMQ Socket mode")
     manager: ChannelManager = property(lambda self: self._mngr, doc="Channel manager")
     identity: bytes = property(lambda self: self._identity, doc="ZMQ socket identity")
-    mngr_poll = property(lambda self: self._mngr_poll, __set_mngr_poll,
-                         doc="Uses central Poller")
-    send_timeout = property(lambda self: self._send_timeout, __set_send_timeout,
-                            doc="Timeout for send operations")
+    mngr_poll: bool = property(lambda self: self._mngr_poll, __set_mngr_poll,
+                               doc="Uses central Poller")
+    send_timeout: int = property(lambda self: self._send_timeout, __set_send_timeout,
+                                 doc="Timeout for send operations")
 
-class BaseHandler:
+
+class BaseMessageHandler:
     """Base class for message handlers.
 
 Attributes:
@@ -515,8 +477,8 @@ Attributes:
 Abstract methods:
     :dispatch: Process message received from peer.
 """
-    def __init__(self, chn: BaseChannel, role: Origin,
-                 session_class: BaseSession = BaseSession):
+    def __init__(self, chn: TChannel, role: Origin,
+                 session_class: TSession = BaseSession):
         """Message handler initialization.
 
 Arguments:
@@ -524,22 +486,22 @@ Arguments:
     :role: The role that the handler performs.
     :session_class: Class for session objects.
 """
-        self.chn: BaseChannel = chn
+        self.chn: TChannel = chn
         chn.handler = self
-        self.__role = role
-        self.routed = isinstance(chn, RouterChannel)
+        self.__role: Origin = role
+        self.routed: bool = isinstance(chn, RouterChannel)
         self.sessions: Dict[bytes, BaseSession] = {}
-        self.protocol = BaseProtocol()
-        self.__scls = session_class
+        self.protocol: TProtocol = BaseProtocol()
+        self.__scls: TSession = session_class
     def create_session(self, routing_id: bytes):
         """Session object factory."""
         session = self.__scls(routing_id)
         self.sessions[routing_id] = session
         return session
-    def get_session(self, routing_id: bytes = INTERNAL_ROUTE) -> BaseSession:
+    def get_session(self, routing_id: bytes = INTERNAL_ROUTE) -> TSession:
         "Returns session object registered for route or None."
         return self.sessions.get(routing_id)
-    def discard_session(self, session):
+    def discard_session(self, session: TSession):
         """Discard session object.
 
 If `session.endpoint` value is set, it also disconnects channel from this endpoint.
@@ -550,15 +512,27 @@ Arguments:
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
         del self.sessions[session.routing_id]
-    def on_close(self):
-        "Called by channel on Close event."
-    def on_invalid_message(self, session: BaseSession, exc: InvalidMessageError):
-        "Called by `receive()` on Invalid Message event."
+    def closing(self):
+        """Called by channel on Close event.
+
+The base implementation does nothing.
+"""
+    def on_invalid_message(self, session: TSession, exc: InvalidMessageError):
+        """Called by `receive()` on Invalid Message event.
+
+The base implementation does nothing.
+"""
     def on_invalid_greeting(self, exc: InvalidMessageError):
-        "Called by `receive()` on Invalid Greeting event."
-    def on_dispatch_error(self, session: BaseSession, exc: Exception):
-        "Called by `receive()` on Exception unhandled by `dispatch()`."
-    def connect_peer(self, endpoint: str, routing_id: bytes = None) -> BaseSession:
+        """Called by `receive()` on Invalid Greeting event.
+
+The base implementation does nothing.
+"""
+    def on_dispatch_error(self, session: TSession, exc: Exception):
+        """Called by `receive()` on Exception unhandled by `dispatch()`.
+
+The base implementation does nothing.
+"""
+    def connect_peer(self, endpoint: str, routing_id: bytes = None) -> TSession:
         """Connects to a remote peer and creates a session for this connection.
 
 Arguments:
@@ -593,16 +567,16 @@ Arguments:
             return
         try:
             self.dispatch(session, msg)
-        except Exception as exc: # pylint: disable=W0703
+        except Exception as exc:
             self.on_dispatch_error(session, exc)
-    def send(self, msg: BaseMessage, session: BaseSession = None):
+    def send(self, msg: TMessage, session: TSession = None):
         "Send message through channel."
         zmsg = msg.as_zmsg()
         if self.chn.routed:
             assert session
             zmsg.insert(0, session.routing_id)
         self.chn.send(zmsg)
-    def dispatch(self, session: BaseSession, msg: BaseMessage):
+    def dispatch(self, session: TSession, msg: TMessage):
         """Process message received from peer.
 
 This method MUST be overridden in child classes.
@@ -619,12 +593,21 @@ Arguments:
 class BaseServiceImpl:
     """Base Firebird Butler Service implementation.
 
+Attributes:
+    :mngr: ChannelManager instance. NOT INITIALIZED.
+    :endpoints: List of end points to which the service shall bind itself. Initially empty.
+    :remotes: Dictionary of remote services endpoints [service_uid:addresss]. Initially empty.
+
 Configuration options (retrieved via `get()`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 0].
 
 Abstract methods:
     :initialize: Service initialization.
 """
+    def __init__(self):
+        self.mngr: ChannelManager = None
+        self.endpoints: Sequence = []
+        self.remotes: Mapping[bytes, str] = {}
     def get(self, name: str, *args) -> Any:
         """Returns value of variable.
 
@@ -633,7 +616,7 @@ takes no arguments.
 
 Arguments:
     :name:    Name of the variable.
-    :default: Optional defaut value.
+    :default: Optional defaut value. Used only for attribute, not callable.
 
 Raises:
     AttributeError if value couldn't be retrieved and there is no default value provided.
@@ -644,20 +627,34 @@ Raises:
         else:
             value = getattr(self, name, *args)
         return value
-    def initialize(self, svc):
+    def validate(self):
+        """Validate that service implementation defines all necessary configuration options
+needed for initialization and configuration.
+
+Raises:
+    :AssertionError: When any issue is detected.
+"""
+        assert isinstance(self.endpoints, Sequence)
+        for entrypoint in self.endpoints:
+            assert isinstance(entrypoint, str)
+        assert isinstance(self.remotes, Mapping)
+        for uid, address in self.remotes.items():
+            assert isinstance(uid, bytes)
+            assert isinstance(address, str)
+    def initialize(self, svc: TService):
         """Service initialization.
 
 Must create the channel manager with zmq.context and at least one communication channel.
 """
         raise NotImplementedError
-    def finalize(self, svc):
+    def finalize(self, svc: TService):
         """Service finalization.
 
-Base implementation performs only ChannelManager.shutdown(). If `shutdown_linger`
+Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
 is not defined, uses linger 0 for forced shutdown.
 """
-        svc.mngr.shutdown(self.get('shutdown_linger', 0))
-    def configure(self, svc):
+        self.mngr.shutdown(self.get('shutdown_linger', 0))
+    def configure(self, svc: TService):
         "Service configuration. Default implementation does nothing."
 
 class BaseService:
@@ -668,37 +665,35 @@ structural parts is provided by (Base)ServiceImpl instance.
 
 Attributes:
     :impl: Service implementation.
-    :mngr: ChannelManager instance. NOT INITIALIZED.
 
 Abstract methods:
     :run: Runs the service.
 """
-    def __init__(self, impl: BaseServiceImpl):
-        """If context is not provided, it uses global Context instance.
-
+    def __init__(self, impl: TServiceImpl):
+        """
 Arguments:
     :impl:    Service implementation.
 """
         self.impl = impl
-        self.mngr: ChannelManager = None
     def validate(self):
         """Validate that service is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
-        assert isinstance(self.mngr, ChannelManager), "Channel manager required"
-        assert isinstance(self.mngr.ctx, Context), "Channel manager without ZMQ context"
-        assert self.mngr.channels, "Channel manager without channels"
-        for chn in self.mngr.channels:
+        assert isinstance(self.impl.mngr, ChannelManager), "Channel manager required"
+        assert isinstance(self.impl.mngr.ctx, Context), "Channel manager without ZMQ context"
+        assert self.impl.mngr.channels, "Channel manager without channels"
+        for chn in self.impl.mngr.channels:
             assert chn.handler, "Channel without handler"
     def run(self):
         """Runs the service."""
         raise NotImplementedError
     def start(self):
-        """Starts the service. It initializes, configures and then runs the service.
-Performs finalization when run() finishes.
+        """Starts the service. It initializes, configures, validates and then runs the
+service. Performs finalization when run() finishes.
 """
+        self.impl.validate()
         self.impl.initialize(self)
         self.impl.configure(self)
         try:

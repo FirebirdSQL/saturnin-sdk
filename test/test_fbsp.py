@@ -41,47 +41,43 @@ from struct import pack
 from saturnin.sdk import fbsp, VENDOR_UID, PLATFORM_UID
 from saturnin.sdk.base import Origin
 
+def get_token(val):
+    "Return FBSP message token from integer."
+    return pack('Q', val)
+
 class TestMessages(unittest.TestCase):
     """Basic tests for FBSP Message classes"""
     def setUp(self):
         self.out = io.StringIO()
-        self._fbsp = fbsp.Protocol()
+        self._fbsp = fbsp.Protocol.instance()
     def tearDown(self):
         self.out.close()
-    def get_token(self, val: int) -> bytes:
-        "Return FBSP message token from integer."
-        return pack('Q', val)
-    def print_msg(self, msg: fbsp.Message) -> None:
+    def print_msg(self, msg: fbsp.TMessage) -> None:
         "Print message"
         print(msg.get_printout(), file=self.out)
         print("=" * 10, file=self.out)
         #print(self.out.getvalue())
-    def check_msg(self, msg: fbsp.Message, origin: Origin) -> fbsp.Message:
+    def check_msg(self, msg: fbsp.TMessage, origin: Origin) -> fbsp.TMessage:
         "Serialize, validate and parse the message."
         zmsg = msg.as_zmsg()
         self._fbsp.validate(zmsg, origin)
         return self._fbsp.parse(zmsg)
-    def create_hello(self) -> fbsp.Message:
+    def create_hello(self) -> fbsp.HelloMessage:
         "Creates test HELLO message"
-        msg = self._fbsp.create_message_for(fbsp.MsgType.HELLO, self.get_token(1))
-        msg.peer.uid = UUID('c24bdd24-46be-11e9-8f39-5404a6a1fd6e').bytes
-        msg.peer.host = "localhost"
-        msg.peer.pid = 100
-        msg.peer.identity.uid = UUID('c9cf8bcc-46be-11e9-8f39-5404a6a1fd6e').bytes
-        msg.peer.identity.name = "Agent name"
-        msg.peer.identity.version = "1.0"
-        msg.peer.identity.fbsp.uid = fbsp.PROTOCOL_UID.bytes
-        msg.peer.identity.fbsp.version = '1'
-        msg.peer.identity.protocol.uid = fbsp.PROTOCOL_UID.bytes
-        msg.peer.identity.protocol.version = '1'
-        msg.peer.identity.vendor.uid = VENDOR_UID.bytes
-        msg.peer.identity.platform.uid = PLATFORM_UID.bytes
-        msg.peer.identity.platform.version = "1.0"
+        msg: fbsp.HelloMessage = self._fbsp.create_message_for(fbsp.MsgType.HELLO, get_token(1))
+        msg.peer.instance.uid = UUID('c24bdd24-46be-11e9-8f39-5404a6a1fd6e').bytes
+        msg.peer.instance.pid = 100
+        msg.peer.instance.host = "localhost"
+        msg.peer.client.uid = UUID('c9cf8bcc-46be-11e9-8f39-5404a6a1fd6e').bytes
+        msg.peer.client.name = "Agent name"
+        msg.peer.client.version = "1.0"
+        msg.peer.client.vendor.uid = VENDOR_UID.bytes
+        msg.peer.client.platform.uid = PLATFORM_UID.bytes
+        msg.peer.client.platform.version = "1.0"
         return msg
-    def create_request(self) -> fbsp.Message:
-        "Creates test REQUEST/SVC_ABILITIES message"
-        return self._fbsp.create_request_for(fbsp.RequestCode.SVC_ABILITIES,
-                                             self.get_token(4))
+    def create_request(self) -> fbsp.TMessage:
+        "Creates test REQUEST/1.1 message"
+        return self._fbsp.create_request_for(1, 1, get_token(4))
     def test_hello(self):
         "HELLO message"
         expect = """Message type: HELLO: 1
@@ -89,21 +85,15 @@ Flags: 0
 Type data: 0
 Token: 1
 Peer:
-uid: "c24bdd24-46be-11e9-8f39-5404a6a1fd6e"
-host: "localhost"
-pid: 100
-identity {
+instance {
+  uid: "c24bdd24-46be-11e9-8f39-5404a6a1fd6e"
+  pid: 100
+  host: "localhost"
+}
+client {
   uid: "c9cf8bcc-46be-11e9-8f39-5404a6a1fd6e"
   name: "Agent name"
   version: "1.0"
-  fbsp {
-    uid: "3aeca6ef-c6e1-5acd-a6fe-7ef6849f95c4"
-    version: "1"
-  }
-  protocol {
-    uid: "3aeca6ef-c6e1-5acd-a6fe-7ef6849f95c4"
-    version: "1"
-  }
   vendor {
     uid: "a86ff2d2-73eb-593f-8b14-f2f7af0233d1"
   }
@@ -131,21 +121,15 @@ Flags: 0
 Type data: 0
 Token: 1
 Peer:
-uid: "b69daa46-46c0-11e9-8f39-5404a6a1fd6e"
-host: "localhost"
-pid: 100
-identity {
+instance {
+  uid: "b69daa46-46c0-11e9-8f39-5404a6a1fd6e"
+  pid: 100
+  host: "localhost"
+}
+service {
   uid: "bcaabd34-46c0-11e9-8f39-5404a6a1fd6e"
   name: "Agent name"
   version: "1.0"
-  fbsp {
-    uid: "3aeca6ef-c6e1-5acd-a6fe-7ef6849f95c4"
-    version: "1"
-  }
-  protocol {
-    uid: "3aeca6ef-c6e1-5acd-a6fe-7ef6849f95c4"
-    version: "1"
-  }
   vendor {
     uid: "a86ff2d2-73eb-593f-8b14-f2f7af0233d1"
   }
@@ -154,24 +138,27 @@ identity {
     version: "1.0"
   }
 }
+api {
+  number: 1
+  uid: "7f7ffc56-66a2-11e9-b502-5404a6a1fd6e"
+}
 # data frames: 0
 ==========
 """
         try:
             msg = self._fbsp.create_welcome_reply(self.create_hello())
-            msg.peer.uid = UUID('b69daa46-46c0-11e9-8f39-5404a6a1fd6e').bytes
-            msg.peer.host = "localhost"
-            msg.peer.pid = 100
-            msg.peer.identity.uid = UUID('bcaabd34-46c0-11e9-8f39-5404a6a1fd6e').bytes
-            msg.peer.identity.name = "Agent name"
-            msg.peer.identity.version = "1.0"
-            msg.peer.identity.fbsp.uid = fbsp.PROTOCOL_UID.bytes
-            msg.peer.identity.fbsp.version = '1'
-            msg.peer.identity.protocol.uid = fbsp.PROTOCOL_UID.bytes
-            msg.peer.identity.protocol.version = '1'
-            msg.peer.identity.vendor.uid = VENDOR_UID.bytes
-            msg.peer.identity.platform.uid = PLATFORM_UID.bytes
-            msg.peer.identity.platform.version = "1.0"
+            msg.peer.instance.uid = UUID('b69daa46-46c0-11e9-8f39-5404a6a1fd6e').bytes
+            msg.peer.instance.pid = 100
+            msg.peer.instance.host = "localhost"
+            msg.peer.service.uid = UUID('bcaabd34-46c0-11e9-8f39-5404a6a1fd6e').bytes
+            msg.peer.service.name = "Agent name"
+            msg.peer.service.version = "1.0"
+            msg.peer.service.vendor.uid = VENDOR_UID.bytes
+            msg.peer.service.platform.uid = PLATFORM_UID.bytes
+            msg.peer.service.platform.version = "1.0"
+            api = msg.peer.api.add()
+            api.number = 1
+            api.uid = UUID('7f7ffc56-66a2-11e9-b502-5404a6a1fd6e').bytes
 
             with self.assertRaises(fbsp.InvalidMessageError):
                 self.check_msg(msg, Origin.CLIENT)
@@ -196,8 +183,8 @@ Token: 3
 ==========
 """
         try:
-            msg = self._fbsp.create_message_for(fbsp.MsgType.NOOP, self.get_token(3),
-                                                flags=fbsp.Flag.ACK_REQ)
+            msg = self._fbsp.create_message_for(fbsp.MsgType.NOOP, get_token(3),
+                                                flags=fbsp.MsgFlag.ACK_REQ)
             self.check_msg(msg, Origin.SERVICE)
             parsed = self.check_msg(msg, Origin.CLIENT)
             self.print_msg(parsed)
@@ -213,9 +200,10 @@ Token: 3
         "REQUEST message"
         expect = """Message type: REQUEST: 4
 Flags: 0
-Type data: 1
+Type data: 257
 Token: 4
-Request code: SVC_ABILITIES: 1
+Interface ID: 1
+API code: 1
 # data frames: 0
 ==========
 """
@@ -232,18 +220,18 @@ Request code: SVC_ABILITIES: 1
         "REPLY message"
         expect = """Message type: REPLY: 5
 Flags: 0
-Type data: 1
+Type data: 257
 Token: 4
-Abilities:
-can_repeat_messages: 1
+Interface ID: 1
+API code: 1
 # data frames: 0
 ==========
 """
         try:
             msg = self._fbsp.create_reply_for(self.create_request())
-            msg.abilities.can_repeat_messages = 1
-            with self.assertRaises(fbsp.InvalidMessageError):
-                self.check_msg(msg, Origin.CLIENT)
+            #msg.abilities.can_repeat_messages = 1
+            #with self.assertRaises(fbsp.InvalidMessageError):
+                #self.check_msg(msg, Origin.CLIENT)
             parsed = self.check_msg(msg, Origin.SERVICE)
             self.print_msg(parsed)
             self.assertEqual(expect, self.out.getvalue())
@@ -278,9 +266,9 @@ token: "\\004\\000\\000\\000\\000\\000\\000\\000"
 ==========
 """
         try:
-            msg = self._fbsp.create_message_for(fbsp.MsgType.CANCEL, self.get_token(7))
+            msg = self._fbsp.create_message_for(fbsp.MsgType.CANCEL, get_token(7))
 
-            msg.cancel_reqest.token = self.get_token(4)
+            msg.cancel_reqest.token = get_token(4)
             with self.assertRaises(fbsp.InvalidMessageError):
                 self.check_msg(msg, Origin.SERVICE)
             parsed = self.check_msg(msg, Origin.CLIENT)
@@ -292,10 +280,11 @@ token: "\\004\\000\\000\\000\\000\\000\\000\\000"
         "STATE message"
         expect = """Message type: STATE: 8
 Flags: 0
-Type data: 1
+Type data: 257
 Token: 4
 State: RUNNING: 2
-Request code: SVC_ABILITIES: 1
+Interface ID: 1
+API code: 1
 # data frames: 0
 ==========
 """
@@ -319,7 +308,7 @@ Token: 1
 ==========
 """
         try:
-            msg = self._fbsp.create_message_for(fbsp.MsgType.CLOSE, self.get_token(1))
+            msg = self._fbsp.create_message_for(fbsp.MsgType.CLOSE, get_token(1))
             self.check_msg(msg, Origin.SERVICE)
             parsed = self.check_msg(msg, Origin.CLIENT)
             self.print_msg(parsed)
@@ -347,84 +336,6 @@ description: "Additional error description"
             err = msg.add_error()
             err.code = 1
             err.description = "Additional error description"
-            with self.assertRaises(fbsp.InvalidMessageError):
-                self.check_msg(msg, Origin.CLIENT)
-            parsed = self.check_msg(msg, Origin.SERVICE)
-            self.print_msg(parsed)
-            self.assertEqual(expect, self.out.getvalue())
-        except fbsp.InvalidMessageError as exc:
-            self.fail(str(exc))
-    def test_rq_con_repeat(self):
-        "REQUEST/CON_REPEAT message"
-        expect = """Message type: REQUEST: 4
-Flags: 0
-Type data: 20
-Token: 5
-Repeat:
-last: 5
-# data frames: 0
-==========
-"""
-        try:
-            msg = self._fbsp.create_request_for(fbsp.RequestCode.CON_REPEAT,
-                                                self.get_token(5))
-            msg.repeat.last = 5
-            with self.assertRaises(fbsp.InvalidMessageError):
-                self.check_msg(msg, Origin.SERVICE)
-            parsed = self.check_msg(msg, Origin.CLIENT)
-            self.print_msg(parsed)
-            self.assertEqual(expect, self.out.getvalue())
-        except fbsp.InvalidMessageError as exc:
-            self.fail(str(exc))
-    def test_rep_svc_abilities(self):
-        "REPLY/SVC_ABILITIES message"
-        expect = """Message type: REPLY: 5
-Flags: 0
-Type data: 1
-Token: 4
-Abilities:
-service_state {
-  uid: "SSTP"
-  version: "1"
-  level: 1
-}
-service_config {
-  uid: "RSCFG"
-  version: "1"
-}
-service_control {
-  uid: "RSCTRL"
-  version: "1"
-}
-abilities {
-  key: "myability"
-  value {
-    service_type: PROVIDER
-    data_handler: B_PROVIDER
-    protocol {
-      uid: "PUID"
-      version: "1.1"
-    }
-  }
-}
-# data frames: 0
-==========
-"""
-        try:
-            msg = self._fbsp.create_reply_for(self.create_request())
-            msg.abilities.service_state.uid = b'SSTP'
-            msg.abilities.service_state.version = "1"
-            msg.abilities.service_state.level = 1
-            msg.abilities.service_config.uid = b'RSCFG'
-            msg.abilities.service_config.version = "1"
-            msg.abilities.service_control.uid = b'RSCTRL'
-            msg.abilities.service_control.version = "1"
-            ability = msg.abilities.abilities["myability"]
-            ability.service_type = fbsp.pb.PROVIDER
-            ability.data_handler.append(fbsp.pb.B_PROVIDER)
-            protocol = ability.protocol.add()
-            protocol.uid = b'PUID'
-            protocol.version = "1.1"
             with self.assertRaises(fbsp.InvalidMessageError):
                 self.check_msg(msg, Origin.CLIENT)
             parsed = self.check_msg(msg, Origin.SERVICE)

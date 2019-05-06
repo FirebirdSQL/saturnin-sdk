@@ -35,48 +35,36 @@
 
 ROMAN service returns data frames with arabic numbers replaced with Roman numbers.
 """
-from uuid import UUID
-from typing import List
-from saturnin.service.roman.api import RomanRequest, Protocol
-from saturnin.sdk.base import BaseChannel
-from saturnin.sdk.fbsp import Session, ClientMessageHandler, MsgType, \
-     ReplyMessage, ErrorMessage, exception_for
+#from uuid import UUID
+from typing import List, Dict
+from saturnin.service.roman.api import RomanRequest, SERVICE_INTERFACE
+from saturnin.sdk.types import InterfaceDescriptor
+from saturnin.sdk.fbsp import Session, MsgType, bb2h, ReplyMessage, ErrorMessage, exception_for
+from saturnin.sdk.client import ServiceClient
 
-class RomanClient(ClientMessageHandler):
-    # pylint: disable=W0223,R0913
+class RomanClient(ServiceClient):
     """Message handler for ROMAN client."""
-    def __init__(self, chn: BaseChannel, instance_uid: UUID, host: str, agent_uid: UUID,
-                 agent_name: str, agent_version: str):
-        super().__init__(chn, instance_uid, host, agent_uid, agent_name, agent_version)
-        self.protocol = Protocol()
-        self.handlers.update({(MsgType.REPLY, RomanRequest.ROMAN): self.h_roman,
-                              MsgType.DATA: self.raise_protocol_violation,
-                              MsgType.REPLY: self.raise_protocol_violation,
-                              MsgType.STATE: self.raise_protocol_violation,
-                             })
-        self.desc.identity.protocol.uid = self.protocol.uid.bytes
-        self.desc.identity.protocol.version = str(self.protocol.revision)
-    def h_error(self, session: Session, msg: ErrorMessage):
+    def get_interface(self) -> InterfaceDescriptor:
+        return SERVICE_INTERFACE
+    def get_handlers(self, api_number: int) -> Dict:
+        return {(MsgType.REPLY, bb2h(api_number, RomanRequest.ROMAN)): self.on_roman,
+                MsgType.DATA: self.raise_protocol_violation,
+                MsgType.REPLY: self.raise_protocol_violation,
+                MsgType.STATE: self.raise_protocol_violation,
+               }
+    def on_error(self, session: Session, msg: ErrorMessage):
         "Handle ERROR message received from Service."
         self.last_token_seen = msg.token
         if msg.token != session.greeting.token:
             session.request_done(msg.token)
         raise exception_for(msg)
-    def h_roman(self, session: Session, msg: ReplyMessage):
+    def on_roman(self, session: Session, msg: ReplyMessage):
         "ROMAN reply handler."
         self.last_token_seen = msg.token
         req = session.get_request(msg.token)
         req.response = msg.data
         session.request_done(req)
     # ROMAN API for clients
-    def open(self, endpoint: str):
-        "Opens connection to ROMAN service."
-        self.connect_peer(endpoint)
-        token = self.new_token()
-        hello = self.protocol.create_message_for(MsgType.HELLO, token)
-        hello.peer.CopyFrom(self.desc)
-        self.send(hello)
-        self.get_response(token, 1000)
     def roman(self, *args, **kwargs) -> List:
         """Pass data through ROMAN request.
 
@@ -92,7 +80,7 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(RomanRequest.ROMAN, token)
+        msg = self.protocol.create_request_for(self.interface_id, RomanRequest.ROMAN, token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)

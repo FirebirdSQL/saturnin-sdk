@@ -40,12 +40,12 @@ need to run multiple services in parallel in one application, each service must 
 run in a separate thread or subprocess.
 """
 
-from typing import List, Dict, Any
-from uuid import uuid1
+from typing import Any
 from time import sleep
 from zmq import Context, POLLIN
+from saturnin.sdk.types import TService
 from saturnin.sdk.base import ChannelManager, RouterChannel
-from saturnin.sdk import fbsp
+from saturnin.sdk.service import Service, ServiceImpl
 
 class DummyEvent:
     """Dummy Event class"""
@@ -67,7 +67,7 @@ class DummyEvent:
         return self._flag
 
 
-class SimpleServiceImpl(fbsp.ServiceImpl):
+class SimpleServiceImpl(ServiceImpl):
     """Simple Firebird Butler Service implementation.
 
 Attributes:
@@ -76,51 +76,42 @@ Attributes:
 Configuration options (retrieved via `get()`):
     :shutdown_linger:  (int) ZMQ Linger value used on shutdown [Default 0].
     :zmq_context: ZMQ context [default: Context.instance()]
-    :instance_id: (bytes) Globally unique identification for this service instance
-                  [Default uuid1().bytes].
-    :stop_event: (Event) instance used to stop the service [Default `DummyEvent`].
-    :svc_entrypoints:  Sequence of service entrypoints (ZMQ addresses).
 """
-    def __init__(self, stop_event: Any, entrypoints: List[str], remotes: Dict[str, str]):
+    def __init__(self):
         super().__init__()
-        self.stop_event = stop_event
-        self.svc_entrypoints = entrypoints
-        self.svc_remotes = remotes
         self.svc_chn: RouterChannel = None
-    def initialize(self, svc: fbsp.Service):
+    def initialize(self, svc: TService):
         """Performs next actions:
+
     - Creates `ChannelManager` with shared ZMQ `Context` in service.
     - Creates managed (inbound) `RouterChannel` for service.
     - Creates/sets event to stop the service.
 """
         super().initialize(svc)
-        svc.mngr = ChannelManager(self.get('zmq_context', Context.instance()))
-        self.svc_chn = RouterChannel(self.get('instance_id', uuid1().bytes))
-        svc.mngr.add(self.svc_chn)
-        svc.event = self.get('stop_event', DummyEvent())
-    def configure(self, svc):
+        self.mngr = ChannelManager(self.get('zmq_context', Context.instance()))
+        self.svc_chn = RouterChannel(self.instance_id)
+        self.mngr.add(self.svc_chn)
+    def configure(self, svc: TService):
         """Performs next actions:
-    - Binds service router channel to specified entrypoints.
+    - Binds service router channel to specified endpoints.
 """
-        for addr in self.get('svc_entrypoints'):
+        for addr in self.get('endpoints'):
             self.svc_chn.bind(addr)
 
-class SimpleService(fbsp.Service):
+class SimpleService(Service):
     """Simple Firebird Butler Service.
 
 Has simple Event-controlled I/O loop using `ChannelManager.wait()`. Incomming messages
 are processed by `receive()` of channel handler.
 
 Attributes:
-    :mngr:         ChannelManager
-    :event:        Event instance used to send STOP signal to the service.
-    :validate_all: If True, validates all received messages (default False).
-    :timeout:      How long it waits for incoming messages (default 1 sec).
+    :mngr:    ChannelManager
+    :event:   Event instance used to send STOP signal to the service.
+    :timeout: How long it waits for incoming messages (default 1 sec).
 """
-    def __init__(self, impl: SimpleServiceImpl):
+    def __init__(self, impl: SimpleServiceImpl, event: Any):
         super().__init__(impl)
-        self.event = None
-        self.validate_all = False
+        self.event = event
         self.timeout = 1000  # 1sec
     def validate(self):
         """Validate that service is properly initialized and configured.
@@ -139,7 +130,7 @@ does nothing.
         """Runs the service until `event` is set.
 """
         while not self.event.is_set():
-            events = self.mngr.wait(self.timeout)
+            events = self.impl.mngr.wait(self.timeout)
             if events:
                 for channel, event in events.items():
                     if event == POLLIN:

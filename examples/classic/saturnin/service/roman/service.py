@@ -42,17 +42,18 @@ Supported requests:
 
 from uuid import UUID
 from itertools import groupby
-from saturnin.service.roman.api import RomanRequest, Protocol, PROTOCOL_UID, SERVICE_UID
-from saturnin.sdk.base import BaseChannel, BaseService, ServiceError, InvalidMessageError
+from saturnin.sdk.types import ServiceError, InvalidMessageError, MsgType, ErrorCode, \
+     TSession
+from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
+from saturnin.sdk.base import BaseChannel, BaseService
 from saturnin.sdk.classic import SimpleServiceImpl
-from saturnin.sdk.fbsp import Session, ServiceMessagelHandler, MsgType, ErrorCode, \
-     HelloMessage, CancelMessage, RequestMessage
+from saturnin.sdk.fbsp import Session, ServiceMessagelHandler, HelloMessage, \
+     CancelMessage, RequestMessage, bb2h
 
 # Functions
 
 def arabic2roman(line: str) -> bytes:
     "Returns UTF-8 bytestring with arabic numbers replaced with Roman ones."
-    # pylint: disable=C0111
     def i2r(num: int) -> str:
         "Converts Arabic number to Roman number."
         val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
@@ -76,38 +77,36 @@ def arabic2roman(line: str) -> bytes:
 
 # Classes
 
-class RomanMessageHandler(ServiceMessagelHandler): # pylint: disable=W0223
+class RomanMessageHandler(ServiceMessagelHandler):
     """Message handler for ROMAN service."""
     def __init__(self, chn: BaseChannel, service):
         super().__init__(chn, service)
-        # We use ROMAN protocol instead raw FBSP
-        self.protocol = Protocol()
         # Our message handlers
-        self.handlers.update({(MsgType.REQUEST, RomanRequest.ROMAN): self.handle_roman,
+        self.handlers.update({(MsgType.REQUEST, bb2h(1, RomanRequest.ROMAN)): self.on_roman,
                               MsgType.DATA: self.send_protocol_violation,
                              })
-    def on_invalid_message(self, session: Session, exc: InvalidMessageError):
+    def on_invalid_message(self, session: TSession, exc: InvalidMessageError):
         "Invalid Message event."
         raise ServiceError("Invalid message") from exc
     def on_invalid_greeting(self, exc: InvalidMessageError):
         "Invalid Greeting event."
         raise ServiceError("Invalid Greeting") from exc
-    def on_dispatch_error(self, session: Session, exc: Exception):
+    def on_dispatch_error(self, session: TSession, exc: Exception):
         "Exception unhandled by `dispatch()`."
         raise ServiceError("Unhandled exception") from exc
-    def h_hello(self, session: Session, msg: HelloMessage):
+    def on_hello(self, session: TSession, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
-        super().h_hello(session, msg)
+        super().on_hello(session, msg)
         welcome = self.protocol.create_welcome_reply(msg)
-        welcome.peer.CopyFrom(self.impl.desc)
+        welcome.peer.CopyFrom(self.impl.welcome_df)
         self.send(welcome, session)
-    def h_cancel(self, session: Session, msg: CancelMessage):
+    def on_cancel(self, session: TSession, msg: CancelMessage):
         "Handle CANCEL message."
         # ROMAN uses simple REQUEST/REPLY API, so there is no point to send CANCEL
         # messages. However, we have to handle it although we'll do nothing.
-        # In such cases we could either override the handle_cancel() method like now,
+        # In such cases we could either override the on_cancel() method like now,
         # or assign self.do_nothing handler to MsgType.CANCEL in __init__().
-    def handle_roman(self, session: Session, msg: RequestMessage):
+    def on_roman(self, session: TSession, msg: RequestMessage):
         """Handle REQUEST/ROMAN message.
 
 Data frames must contain strings as UTF-8 encoded bytes. We'll send them back in REPLY with
@@ -127,16 +126,10 @@ Arabic numbers replaced with Roman ones.
 
 class RomanServiceImpl(SimpleServiceImpl):
     """Implementation of ROMAN service."""
-    # It's not an official service, so we can use any UUID constants
-    SERVICE_UID: UUID = SERVICE_UID
-    SERVICE_NAME: str = "Sample ROMAN service"
-    SERVICE_VERSION: str = "0.1"
-    PROTOCOL_UID: UUID = PROTOCOL_UID
+    def __init__(self):
+        super().__init__()
+        self.agent = SERVICE_AGENT
+        self.api = SERVICE_API
     def initialize(self, svc: BaseService):
         super().initialize(svc)
         self.msg_handler = RomanMessageHandler(self.svc_chn, self)
-        #
-        self.desc.host = "localhost"
-        self.desc.identity.protocol.uid = self.msg_handler.protocol.uid.bytes
-        self.desc.identity.protocol.version = str(self.msg_handler.protocol.revision)
-        self.desc.identity.classification = "service-example/roman"

@@ -49,41 +49,46 @@ Supported requests:
 
 from enum import IntEnum
 from uuid import UUID
-from saturnin.sdk import fbsp
-
-# It's not an official protocol, so we can use any UUID constant
-PROTOCOL_UID = UUID('24580be2-4434-11e9-b528-5404a6a1fd6e')
-PROTOCOL_REVISION = 1
+from saturnin.sdk import VENDOR_UID
+from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
+     DependencyType
+from saturnin.service.roman import api as roman_api
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('7e59724e-46a4-11e9-8f39-5404a6a1fd6e')
+SERVICE_VERSION: str = '0.3'
 
 #  Request Codes
 
 class EchoRequest(IntEnum):
     "Echo Service Request Code"
-    ECHO = 1000
-    ECHO_ROMAN = 1001
-    ECHO_MORE = 1002
-    ECHO_STATE = 1003
-    ECHO_SYNC = 1004
-    ECHO_DATA_MORE = 1005
-    ECHO_DATA_SYNC = 1006
+    ECHO = 1
+    ECHO_ROMAN = 2
+    ECHO_MORE = 3
+    ECHO_STATE = 4
+    ECHO_SYNC = 5
+    ECHO_DATA_MORE = 6
+    ECHO_DATA_SYNC = 7
 
-# Error Codes
+#  Service description
 
-class EchoError(IntEnum):
-    "Echo Service Error Code"
-    PROTOCOL_VIOLATION = 1000
+SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
+                                "echo",
+                                "Sample ECHO service",
+                                SERVICE_VERSION,
+                                VENDOR_UID,
+                                "example/echo"
+                               )
+SERVICE_INTERFACE = InterfaceDescriptor(UUID('24580be2-4434-11e9-b528-5404a6a1fd6e'),
+                                        "Echo service API", 1, EchoRequest)
+SERVICE_API = [SERVICE_INTERFACE]
 
-# ECHO protocol
-
-class Protocol(fbsp.Protocol):
-    """ECHO FBSP protocol.
-"""
-    def __init__(self):
-        super().__init__()
-        self._error_enums.append(EchoError)
-        self._request_enums.append(EchoRequest)
-        self.uid = PROTOCOL_UID
-        self.revision = PROTOCOL_REVISION
+SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT,
+                                        SERVICE_API,
+                                        [(DependencyType.PREFERRED,
+                                          roman_api.SERVICE_INTERFACE.uid)],
+                                        'saturnin.service.echo.service:EchoServiceImpl',
+                                        'saturnin.sdk.classic:SimpleService',
+                                        'saturnin.service.echo.client:EchoClient',
+                                        'saturnin.service.echo.test:TestRunner'
+                                       )

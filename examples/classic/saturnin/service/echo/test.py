@@ -36,7 +36,7 @@
 
 from struct import pack, unpack
 from saturnin.sdk.fbsptest import BaseTestRunner, zmq
-from saturnin.sdk.fbsp import StateMessage, MsgType, Flag
+from saturnin.sdk.fbsp import StateMessage, MsgType, MsgFlag
 from saturnin.service.echo.api import EchoRequest, Protocol
 from saturnin.service.echo.client import EchoClient
 
@@ -159,9 +159,9 @@ class TestRunner(BaseTestRunner):
             msg.data.clear()
             msg.data.append(data)
             if i != len(self.test_data):
-                msg.set_flag(Flag.MORE)
+                msg.set_flag(MsgFlag.MORE)
             else:
-                msg.clear_flag(Flag.MORE)
+                msg.clear_flag(MsgFlag.MORE)
             self.print_msg(msg)
             socket.send_multipart(msg.as_zmsg())
         print("Receiving DATA back:")
@@ -189,9 +189,9 @@ class TestRunner(BaseTestRunner):
             msg.data.clear()
             msg.data.append(data)
             if i != len(self.test_data):
-                msg.set_flag(Flag.ACK_REQ)
+                msg.set_flag(MsgFlag.ACK_REQ)
             else:
-                msg.clear_flag(Flag.ACK_REQ)
+                msg.clear_flag(MsgFlag.ACK_REQ)
             print("Sending DATA:")
             self.print_msg(msg)
             socket.send_multipart(msg.as_zmsg())

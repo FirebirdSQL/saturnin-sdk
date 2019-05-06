@@ -33,7 +33,14 @@
 
 "Saturnin SDK Package"
 
-from .base import PLATFORM_UID, PLATFORM_VERSION, VENDOR_UID
-from . import fbsp
-from . import base
-from . import classic
+from uuid import uuid5, NAMESPACE_OID
+
+# firebird.butler.platform.saturnin-sdk
+PLATFORM_OID = '1.3.6.1.4.1.53446.1.2.0'
+PLATFORM_UID = uuid5(NAMESPACE_OID, PLATFORM_OID)
+PLATFORM_VERSION = '0.2'
+
+# firebird.butler.vendor.firebird
+VENDOR_OID = '1.3.6.1.4.1.53446.1.3.0'
+VENDOR_UID = uuid5(NAMESPACE_OID, VENDOR_OID)
+

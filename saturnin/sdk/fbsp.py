@@ -36,19 +36,19 @@
 
 See https://firebird-butler.readthedocs.io/en/latest/rfc/4/FBSP.html
 """
-# pylint: disable=C0302
 
 from typing import List, Dict, Sequence, Optional, Union
-from uuid import UUID, uuid5, uuid1, NAMESPACE_OID
+from uuid import UUID, uuid5, NAMESPACE_OID
 from struct import pack, unpack
-from enum import Enum, IntEnum, IntFlag
+from enum import IntEnum
 from time import monotonic
-from os import getpid
 import zmq
 from . import fbsp_pb2 as pb
-from .base import PLATFORM_UID, PLATFORM_VERSION, VENDOR_UID, InvalidMessageError, \
-     ServiceError, Origin, BaseMessage, BaseProtocol, BaseSession, BaseHandler, \
-     BaseChannel, BaseService, BaseServiceImpl, get_unique_key, peer_role
+from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
+     BaseChannel, get_unique_key, peer_role
+from .types import TChannel, TServiceImpl, TSession, TMessage, Token, \
+     ServiceError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode, enum_name, \
+     enum_name_only
 
 PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.0' # firebird.butler.protocol.fbsp
 PROTOCOL_UID = uuid5(NAMESPACE_OID, PROTOCOL_OID)
@@ -61,87 +61,7 @@ FOURCC = b'FBSP'
 VERSION_MASK = 7
 ERROR_TYPE_MASK = 31
 
-# Enums
-
-class MsgType(IntEnum):
-    "FBSP Message Type"
-    UNKNOWN = 0
-    HELLO = 1  # initial message from client
-    WELCOME = 2  # initial message from service
-    NOOP = 3  # no operation, used for keep-alive & ping purposes
-    REQUEST = 4  # client request
-    REPLY = 5  # service response to client request
-    DATA = 6  # separate data sent by either client or service
-    CANCEL = 7  # cancel request
-    STATE = 8  # operating state information
-    CLOSE = 9  # sent by peer that is going to close the connection
-    ERROR = 31 # error reported by service
-
-class Flag(IntFlag):
-    "FBSP message flag"
-    ACK_REQ = 1
-    ACK_REPLY = 2
-    MORE = 4
-
-class RequestCode(IntEnum):
-    "FBSP Request Code"
-    ILLEGAL = 0
-    SVC_ABILITIES = 1
-    SVC_CONFIG = 2
-    SVC_STATE = 3
-    SVC_SET_CONFIG = 4
-    SVC_SET_STATE = 5
-    SVC_CONTROL = 6
-    # Reserved 7..19
-    CON_REPEAT = 20
-    CON_CONFIG = 21
-    CON_STATE = 22
-    CON_SET_CONFIG = 23
-    CON_SET_STATE = 24
-    CON_CONTROL = 25
-    # Reserved 26..999
-
-class ErrorCode(IntEnum):
-    "FBSP Error Code"
-    # Errors indicating that particular request cannot be satisfied
-    BAD_REQUEST = 1
-    NOT_IMPLEMENTED = 2
-    PROTOCOL_VERSION_NOT_SUPPORTED = 3
-    INTERNAL_SERVICE_ERROR = 4
-    TOO_MANY_REQUESTS = 5
-    FAILED_DEPENDENCY = 6
-    GONE = 7
-    CONFLICT = 8
-    REQUEST_TIMEOUT = 9
-    NOT_FOUND = 10
-    FORBIDDEN = 11
-    UNAUTHORIZED = 12
-    PAYLOAD_TOO_LARGE = 13
-    INSUFFICIENT_STORAGE = 14
-    INVALID_MESSAGE = 15
-    PROTOCOL_VIOLATION = 16
-    # Fatal errors indicating that connection would/should be terminated
-    SERVICE_UNAVAILABLE = 2000
-    FBSP_VERSION_NOT_SUPPORTED = 2001
-
 # Protocol Buffer Enums
-class DataHandlerType(IntEnum):
-    "protobuf DataHandlerType enum as IntEnum"
-    NONE = pb.NONE
-    B_PROVIDER = pb.B_PROVIDER
-    B_CONSUMER = pb.CONSUMER
-    C_PROVIDER = pb.C_PROVIDER
-    C_CONSUMER = pb.C_CONSUMER
-    PUBLISHER = pb.PUBLISHER
-    SUBSCRIBER = pb.SUBSCRIBER
-    FAN_IN = pb.FAN_IN
-    FAN_OUT = pb.FAN_OUT
-
-class ServiceHandlerType(IntEnum):
-    "protobuf ServiceHandlerType enum as IntEnum"
-    ILLEGAL = pb.ILLEGAL
-    PROVIDER = pb.PROVIDER
-    CONSUMER = pb.CONSUMER
 
 class State(IntEnum):
     "protobuf State enum as IntEnum"
@@ -180,12 +100,8 @@ def validate_agent_id_pb(pbo: pb.AgentIdentification) -> None:
     __invalid_if(pbo.uid == 0, name, "uid")
     __invalid_if(pbo.name == 0, name, "name")
     __invalid_if(pbo.version == 0, name, "version")
-    __invalid_if(not pbo.HasField('fbsp'), name, "fbsp")
-    __invalid_if(not pbo.HasField('protocol'), name, "protocol")
     __invalid_if(not pbo.HasField('vendor'), name, "vendor")
     __invalid_if(not pbo.HasField('platform'), name, "platform")
-    validate_protocol_pb(pbo.fbsp)
-    validate_protocol_pb(pbo.protocol)
     validate_vendor_id_pb(pbo.vendor)
     validate_platform_id_pb(pbo.platform)
 
@@ -193,10 +109,8 @@ def validate_peer_id_pb(pbo: pb.PeerIdentification) -> None:
     "Validate fbsp.PeerIdentification protobuf. Raises InvalidMessage for missing required fields."
     name = "PeerIdentification"
     __invalid_if(len(pbo.uid) == 0, name, "uid")
-    __invalid_if(len(pbo.host) == 0, name, "host")
     __invalid_if(pbo.pid == 0, name, "pid")
-    __invalid_if(not pbo.HasField('identity'), name, "identity")
-    validate_agent_id_pb(pbo.identity)
+    __invalid_if(len(pbo.host) == 0, name, "host")
 
 def validate_error_desc_pb(pbo: pb.ErrorDescription) -> None:
     "Validate fbsp.ErrorDescription protobuf. Raises InvalidMessage for missing required fields."
@@ -204,41 +118,31 @@ def validate_error_desc_pb(pbo: pb.ErrorDescription) -> None:
     __invalid_if(pbo.code == 0, name, "code")
     __invalid_if(len(pbo.description) == 0, name, "description")
 
-def validate_cancel_req_pb(pbo: pb.CancelRequests) -> None:
+def validate_interface_spec_pb(pbo: pb.InterfaceSpec) -> None:
+    "Validate fbsp.InterfaceSpec protobuf. Raises InvalidMessage for missing required fields."
+    name = "InterfaceSpec"
+    __invalid_if(pbo.number == 0, name, "number")
+    __invalid_if(len(pbo.uid) == 0, name, "uid")
+
+def validate_cancel_pb(pbo: pb.CancelRequests) -> None:
     "Validate fbsp.CancelRequests protobuf. Raises InvalidMessage for missing required fields."
     name = "CancelRequests"
     __invalid_if(len(pbo.token) == 0, name, "token")
 
-def validate_protocol_pb(pbo: pb.ProtocolDescription) -> None:
-    "Validate fbsp.ProtocolDescription protobuf. Raises InvalidMessage for missing required fields."
-    name = "ProtocolDescription"
-    __invalid_if(len(pbo.uid) == 0, name, "uid")
-    __invalid_if(len(pbo.version) == 0, name, "version")
+def validate_hello_pb(pbo: pb.HelloDataframe) -> None:
+    "Validate fbsp.HelloDataframe protobuf. Raises InvalidMessage for missing required fields."
+    #name = "HelloDataframe"
+    validate_peer_id_pb(pbo.instance)
+    validate_agent_id_pb(pbo.client)
 
-def validate_service_ability(pbo: pb.ServiceAbility) -> None:
-    "Validate fbsp.ServiceAbility protobuf. Raises InvalidMessage for missing required fields."
-    name = "ServiceAbility"
-    __invalid_if(pbo.service_type == 0, name, "service_type")
-    __invalid_if(len(pbo.data_handler) == 0, name, "data_handler")
-    __invalid_if(len(pbo.protocol) == 0, name, "protocol")
-    validate_protocol_pb(pbo.protocol)
-
-def validate_rep_svc_abilities_pb(pbo: pb.ReplySvcAbilities) -> None:
-    "Validate fbsp.ReplySvcAbilities protobuf. Raises InvalidMessage for missing required fields."
-    name = "ReplySvcAbilities"
-    __invalid_if(not pbo.HasField('service_state'), name, "service_state")
-    __invalid_if(not pbo.HasField('service_config'), name, "service_config")
-    __invalid_if(not pbo.HasField('service_control'), name, "service_control")
-    validate_protocol_pb(pbo.service_state)
-    validate_protocol_pb(pbo.service_config)
-    validate_protocol_pb(pbo.service_control)
-    for ability in pbo.abilities:
-        validate_service_ability(ability)
-
-def validate_rq_con_repeat_pb(pbo: pb.ReqestConRepeat) -> None:
-    "Validate fbsp.ReqestConRepeat protobuf. Raises InvalidMessage for missing required fields."
-    name = "ReqestConRepeat"
-    __invalid_if(pbo.last == 0, name, "last")
+def validate_welcome_pb(pbo: pb.WelcomeDataframe) -> None:
+    "Validate fbsp.WelcomeDataframe protobuf. Raises InvalidMessage for missing required fields."
+    name = "WelcomeDataframe"
+    validate_peer_id_pb(pbo.instance)
+    validate_agent_id_pb(pbo.service)
+    __invalid_if(len(pbo.api) == 0, name, "api")
+    for ispec in pbo.api:
+        validate_interface_spec_pb(ispec)
 
 # Functions
 
@@ -246,15 +150,10 @@ def msg_bytes(msg: Union[bytes, bytearray, zmq.Frame]) -> bytes:
     "Return message frame as bytes."
     return msg.bytes if isinstance(msg, zmq.Frame) else msg
 
-def enum_name_only(value: Enum) -> str:
-    "Returns name of enum value without class name."
-    name = str(value)
-    return name[len(value.__class__.__name__)+1:]
+def bb2h(value_hi: int, value_lo: int) -> int:
+    "Compose two bytes into word value."
+    return unpack('!H', pack('!BB', value_hi, value_lo))[0]
 
-def enum_name(value: Enum) -> str:
-    "Returns name of enum value without class name."
-    name = repr(value)
-    return name[len(value.__class__.__name__)+2:-1]
 # Base Message Classes
 
 class Message(BaseMessage):
@@ -265,29 +164,25 @@ Attributes:
     :header:    FBSP control frame (bytes)
     :flasg:     flags (int)
     :type_data: Data associated with message (int)
-    :token:     Message token (bytes)
+    :token:     Message token (bytearray)
     :data:      List of data frames
 """
-    def __init__(self, protocol):
-        """
-Arguments:
-    :protocol: `Protocol` instance that created the message.
-"""
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type: MsgType = MsgType.UNKNOWN
-        self.type_data = 0
-        self.flags = Flag(0)
-        self.token = bytearray(8)
+        self.type_data: int = 0
+        self.flags: MsgFlag = MsgFlag(0)
+        self.token: Token = bytearray(8)
     def _unpack_data(self) -> None:
         """Called when all fields of the message are set. Usefull for data deserialization."""
     def _pack_data(self, frames: list) -> None:
         """Called when serialization is requested."""
-    def _get_printout_ex(self) -> str: # pylint: disable=R0201
+    def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
         return ""
     def from_zmsg(self, frames: Sequence) -> None:
         _, flags, self.type_data, self.token = unpack(HEADER_FMT, frames[0])
-        self.flags = Flag(flags)
+        self.flags = MsgFlag(flags)
         self.data = frames[1:]  # First frame is a control frame
         self._unpack_data()
     def as_zmsg(self) -> Sequence:
@@ -302,17 +197,17 @@ Arguments:
                     self.flags, self.type_data, self.token)
     def has_more(self) -> bool:
         """Returns True if message has MORE flag set."""
-        return Flag.MORE in self.flags
+        return MsgFlag.MORE in self.flags
     def has_ack_req(self) -> bool:
         """Returns True if message has ACK_REQ flag set."""
-        return Flag.ACK_REQ in self.flags
+        return MsgFlag.ACK_REQ in self.flags
     def has_ack_reply(self) -> bool:
         """Returns True if message has ASK_REPLY flag set."""
-        return Flag.ACK_REPLY in self.flags
-    def set_flag(self, flag: Flag) -> None:
+        return MsgFlag.ACK_REPLY in self.flags
+    def set_flag(self, flag: MsgFlag) -> None:
         """Set flag specified by `flag` mask."""
         self.flags |= flag
-    def clear_flag(self, flag: Flag) -> None:
+    def clear_flag(self, flag: MsgFlag) -> None:
         """Clear flag specified by `flag` mask."""
         self.flags &= ~flag
     def clear(self) -> None:
@@ -320,7 +215,7 @@ Arguments:
         super().clear()
         self.token = bytearray(8)
         self.type_data = 0
-        self.flags = Flag(0)
+        self.flags = MsgFlag(0)
     def shall_ack(self) -> bool:
         """Returns True if message must be acknowledged."""
         return self.has_ack_req() and self.message_type in (MsgType.NOOP, MsgType.REQUEST,
@@ -362,7 +257,7 @@ Raises:
         (control_byte, type_data) = unpack('!4xBxH8x', msg_bytes(zmsg[0]))
         message_type = control_byte >> 3
         if (message_type in (MsgType.REQUEST, MsgType.STATE)) and (type_data == 0):
-            raise InvalidMessageError("Zero Request Code not allowed for REQUEST & STATE messages")
+            raise InvalidMessageError("Zero Request Code not allowed")
         if (message_type == MsgType.ERROR) and (type_data >> 5 == 0):
             raise InvalidMessageError("Zero Error Code not allowed")
         if (message_type == MsgType.ERROR) and ((type_data & ERROR_TYPE_MASK)
@@ -393,13 +288,14 @@ Raises:
                          #in self.get_printout().split('\n'))))
         #print('    ' + '~' * 76)
 
+
 class HandshakeMessage(Message):
-    """FBSP client/service handshake message (HELLO or WELCOME).
+    """Base FBSP client/service handshake message (HELLO or WELCOME).
     The message includes basic information about the Peer.
 """
-    def __init__(self, protocol):
-        super().__init__(protocol)
-        self.peer = pb.PeerIdentification()
+    def __init__(self):
+        super().__init__()
+        self.peer = None
     def _unpack_data(self) -> None:
         self.peer.ParseFromString(self.data.pop(0))
     def _pack_data(self, frames: list) -> None:
@@ -412,44 +308,55 @@ class HandshakeMessage(Message):
         for line in str(self.peer).splitlines():
             if line.strip().startswith('uid:'):
                 i = line.split('"')
-                uuid = UUID(bytes=eval(f'b"{i[1]}"')) # pylint: disable=W0123
+                uuid = UUID(bytes=eval(f'b"{i[1]}"'))
                 line = line.replace(i[1], str(uuid))
             lines.append(line)
         return "Peer:\n%s" % '\n'.join(lines)
     def clear(self) -> None:
         super().clear()
         self.peer.Clear()
-    @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
-        super().validate_zmsg(zmsg)
-        try:
-            frame = pb.PeerIdentification()
-            frame.ParseFromString(msg_bytes(zmsg[1]))
-            validate_peer_id_pb(frame)
-        except Exception as exc:
-            raise InvalidMessageError("Invalid data frame for HELLO or WELCOME") from exc
 
 class HelloMessage(HandshakeMessage):
     """The HELLO message is a Client request to open a Connection to the Service.
     The message includes basic information about the Client and Connection parameters
     required by the Client."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.HELLO
+        self.peer = pb.HelloDataframe()
+    @classmethod
+    def validate_zmsg(cls, zmsg: Sequence) -> None:
+        super().validate_zmsg(zmsg)
+        try:
+            frame = pb.HelloDataframe()
+            frame.ParseFromString(msg_bytes(zmsg[1]))
+            validate_hello_pb(frame)
+        except Exception as exc:
+            raise InvalidMessageError("Invalid data frame for HELLO or WELCOME") from exc
 
 class WelcomeMessage(HandshakeMessage):
     """The WELCOME message is the response of the Service to the HELLO message sent by the Client,
     which confirms the successful creation of the required Connection and announces basic parameters
     of the Service and the Connection."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.WELCOME
+        self.peer = pb.WelcomeDataframe()
+    @classmethod
+    def validate_zmsg(cls, zmsg: Sequence) -> None:
+        super().validate_zmsg(zmsg)
+        try:
+            frame = pb.WelcomeDataframe()
+            frame.ParseFromString(msg_bytes(zmsg[1]))
+            validate_welcome_pb(frame)
+        except Exception as exc:
+            raise InvalidMessageError("Invalid data frame for HELLO or WELCOME") from exc
 
 class NoopMessage(Message):
     """The NOOP message means no operation.
     It’s intended for keep alive purposes and peer availability checks."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.NOOP
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
@@ -457,45 +364,55 @@ class NoopMessage(Message):
         if len(zmsg) > 1:
             raise InvalidMessageError("Data frames not allowed for NOOP")
 
-class RequestMessage(Message):
-    """The REQUEST message is a Client request to the Service."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
-        self.message_type = MsgType.REQUEST
-    def __get_reqest_code(self) -> IntEnum:
-        return self._pr().get_request_code(self.type_data)
-    def __set_reqest_code(self, value: int) -> None:
-        self.type_data = value
+class APIMessage(Message):
+    """Base FBSP client/service API message (REQUEST, REPLY, STATE).
+    The message includes information about the API call (interface ID and API Code)."""
+    def __get_request_code(self) -> int:
+        return self.type_data
+    def __get_api_code(self) -> int:
+        return unpack('!BB', pack('!H', self.type_data))[1]
+    def __set_api_code(self, value: int) -> None:
+        self.type_data = bb2h(self.interface_id, value)
+    def __get_interface(self) -> int:
+        return unpack('!BB', pack('!H', self.type_data))[0]
+    def __set_interface(self, value: int) -> None:
+        self.type_data = bb2h(value, self.api_code)
     def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
-        return f"Request code: {enum_name(self.request_code)}"
-    request_code: int = property(__get_reqest_code, __set_reqest_code, doc="Request Code")
+        lines = [f"Interface ID: {self.interface_id}",
+                 f"API code: {self.api_code}"
+                ]
+        return '\n'.join(lines)
+    interface_id: int = property(__get_interface, __set_interface,
+                                 doc="Interface ID (high byte of Request Code)")
+    api_code: int = property(__get_api_code, __set_api_code,
+                             doc="API Code (lower byte of Request Code)")
+    request_code: int = property(__get_request_code,
+                                 doc="Request Code (Interface ID + API Code)")
 
-class ReplyMessage(Message):
+class RequestMessage(APIMessage):
+    """The REQUEST message is a Client request to the Service."""
+    def __init__(self):
+        super().__init__()
+        self.message_type = MsgType.REQUEST
+
+class ReplyMessage(APIMessage):
     """The REPLY message is a Service reply to the REQUEST message previously sent by Client."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.REPLY
-    def __get_reqest_code(self) -> IntEnum:
-        return self._pr().get_request_code(self.type_data)
-    def __set_reqest_code(self, value: int) -> None:
-        self.type_data = value
-    def _get_printout_ex(self) -> str:
-        "Called for printout of attributes defined by descendant classes."
-        return f"Request code: {enum_name(self.request_code)}"
-    request_code: int = property(__get_reqest_code, __set_reqest_code, doc="Request Code")
 
 class DataMessage(Message):
     """The DATA message is intended for delivery of arbitrary data between connected peers."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.DATA
 
 class CancelMessage(Message):
     """The CANCEL message represents a request for a Service to stop processing the previous
     request from the Client."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.CANCEL
         self.cancel_reqest = pb.CancelRequests()
     def _unpack_data(self) -> None:
@@ -516,24 +433,20 @@ class CancelMessage(Message):
         try:
             frame = pb.CancelRequests()
             frame.ParseFromString(msg_bytes(zmsg[1]))
-            validate_cancel_req_pb(frame)
+            validate_cancel_pb(frame)
         except Exception as exc:
             raise InvalidMessageError("Invalid data frame for CANCEL") from exc
 
-class StateMessage(Message):
+class StateMessage(APIMessage):
     """The STATE message is sent by Service to report its operating state to the Client."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.STATE
         self._state = pb.StateInformation()
     def __get_state(self) -> State:
         return State(self._state.state)
     def __set_state(self, value: State) -> None:
         self._state.state = value
-    def __get_reqest_code(self) -> IntEnum:
-        return self._pr().get_request_code(self.type_data)
-    def __set_reqest_code(self, value: int) -> None:
-        self.type_data = value
     def _unpack_data(self) -> None:
         self._state.ParseFromString(msg_bytes(self.data.pop(0)))
     def _pack_data(self, frames: list) -> None:
@@ -541,7 +454,8 @@ class StateMessage(Message):
     def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
         lines = [f"State: {enum_name(self.state)}",
-                 f"Request code: {enum_name(self.request_code)}"
+                 f"Interface ID: {self.interface_id}",
+                 f"API code: {self.api_code}"
                 ]
         return '\n'.join(lines)
     def clear(self) -> None:
@@ -558,24 +472,23 @@ class StateMessage(Message):
         except Exception as exc:
             raise InvalidMessageError("Invalid data frame for STATE") from exc
 
-    request_code: int = property(__get_reqest_code, __set_reqest_code, doc="Request Code")
     state: State = property(__get_state, __set_state, doc="Service state")
 
 class CloseMessage(Message):
     """The CLOSE message notifies the receiver that sender is going to close the Connection."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.CLOSE
 
 class ErrorMessage(Message):
     """The ERROR message notifies the Client about error condition detected by Service."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
+    def __init__(self):
+        super().__init__()
         self.message_type = MsgType.ERROR
         self.errors = []
-    def __get_error_code(self) -> IntEnum:
-        return self._pr().get_error_code(self.type_data >> 5)
-    def __set_error_code(self, value: IntEnum) -> None:
+    def __get_error_code(self) -> int:
+        return ErrorCode(self.type_data >> 5)
+    def __set_error_code(self, value: ErrorCode) -> None:
         self.type_data = (value << 5) | (self.type_data & ERROR_TYPE_MASK)
     def __get_relates_to(self) -> MsgType:
         return MsgType(self.type_data & ERROR_TYPE_MASK)
@@ -620,65 +533,10 @@ class ErrorMessage(Message):
         self.errors.append(frame)
         return frame
 
-    error_code: IntEnum = property(fget=__get_error_code, fset=__set_error_code,
-                                   doc="Error code")
+    error_code: ErrorCode = property(fget=__get_error_code, fset=__set_error_code,
+                                     doc="Error code")
     relates_to: MsgType = property(fget=__get_relates_to, fset=__set_relates_to,
                                    doc="Message type this error relates to")
-
-# Extended Request Messages
-
-class RequestConRepeat(RequestMessage):
-    """The REQUEST/CON_REPEAT message is a Client request to the Service that
-    shall repeat last message(s) sent."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
-        self.repeat = pb.ReqestConRepeat()
-    def _unpack_data(self):
-        self.repeat.ParseFromString(msg_bytes(self.data.pop(0)))
-    def _pack_data(self, frames: list) -> None:
-        frames.append(self.repeat.SerializeToString())
-    def _get_printout_ex(self) -> str:
-        "Called for printout of attributes defined by descendant classes."
-        return f"Repeat:\n{self.repeat}"
-    def clear(self):
-        super().clear()
-        self.repeat.Clear()
-    @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
-        super().validate_zmsg(zmsg)
-        try:
-            frame = pb.ReqestConRepeat()
-            frame.ParseFromString(msg_bytes(zmsg[1]))
-            validate_rq_con_repeat_pb(frame)
-        except Exception as exc:
-            raise InvalidMessageError("Invalid data frame for REQUEST/CON_REPEAT") from exc
-
-# Extended Reply Messages
-
-class ReplySvcAbilities(ReplyMessage):
-    """The REPLY/SVC_ABILITIES message contains Service abilities."""
-    def __init__(self, protocol):
-        super().__init__(protocol)
-        self.abilities = pb.ReplySvcAbilities()
-    def _unpack_data(self):
-        self.abilities.ParseFromString(msg_bytes(self.data.pop(0)))
-    def _pack_data(self, frames: list) -> None:
-        frames.append(self.abilities.SerializeToString())
-    def _get_printout_ex(self) -> str:
-        "Called for printout of attributes defined by descendant classes."
-        return f"Abilities:\n{self.abilities}"
-    def clear(self):
-        super().clear()
-        self.abilities.Clear()
-    @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
-        super().validate_zmsg(zmsg)
-        try:
-            frame = pb.ReplySvcAbilities()
-            frame.ParseFromString(msg_bytes(zmsg[1]))
-            validate_rep_svc_abilities_pb(frame)
-        except Exception as exc:
-            raise InvalidMessageError("Invalid data frame for REPLY/SVC_ABILITIES") from exc
 
 # Session, Protocol and Message Handlers
 
@@ -728,7 +586,7 @@ Returns:
     def is_handle_valid(self, hnd: int) -> bool:
         "Returns True if handle is valid."
         return hnd in self._handles
-    def get_request(self, token: bytes = None, handle: int = None) -> RequestMessage:
+    def get_request(self, token: Token = None, handle: int = None) -> RequestMessage:
         """Returns stored RequestMessage with given `token` or `handle`."""
         assert ((handle is not None) and (handle in self._handles) or
                 (token is not None) and (token in self._requests))
@@ -758,20 +616,23 @@ Arguments:
         del self._requests[key]
 
     requests: List = property(lambda self: self._requests.values())
-    peer_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.uid))
-    host: str = property(lambda self: self.greeting.peer.host)
-    pid: int = property(lambda self: self.greeting.peer.pid)
-    agent_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.identity.uid))
-    name: str = property(lambda self: self.greeting.peer.identity.name)
-    version: str = property(lambda self: self.greeting.peer.identity.version)
-    vendor: bytes = property(lambda self: UUID(bytes=self.greeting.peer.identity.vendor.uid))
-    platform: bytes = property(lambda self: UUID(bytes=self.greeting.peer.identity.platform.uid))
-    platform_version: str = property(lambda self: self.greeting.peer.identity.platform.version)
-    classification: str = property(lambda self: self.greeting.peer.identity.classification)
+    peer_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.instance.uid))
+    host: str = property(lambda self: self.greeting.peer.instance.host)
+    pid: int = property(lambda self: self.greeting.peer.instance.pid)
+    agent_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.uid))
+    name: str = property(lambda self: self.greeting.peer.service.name)
+    version: str = property(lambda self: self.greeting.peer.service.version)
+    vendor: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.vendor.uid))
+    platform: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.platform.uid))
+    platform_version: str = property(lambda self: self.greeting.peer.service.platform.version)
+    classification: str = property(lambda self: self.greeting.peer.service.classification)
 
 class Protocol(BaseProtocol):
     """4/FBSP - Firebird Butler Service Protocol
     """
+    OID: str = PROTOCOL_OID
+    UID: UUID = PROTOCOL_UID
+    REVISION: int = PROTOCOL_REVISION
     ORIGIN_MESSAGES = {Origin.SERVICE: (MsgType.ERROR, MsgType.WELCOME, MsgType.NOOP,
                                         MsgType.REPLY, MsgType.DATA, MsgType.STATE,
                                         MsgType.CLOSE),
@@ -780,65 +641,28 @@ class Protocol(BaseProtocol):
                       }
     VALID_ACK = (MsgType.NOOP, MsgType.REQUEST, MsgType.REPLY, MsgType.DATA,
                  MsgType.STATE, MsgType.CANCEL)
-    def __init__(self):
-        super().__init__()
-        self.message_map = {MsgType.HELLO: HelloMessage,
-                            MsgType.WELCOME: WelcomeMessage,
-                            MsgType.NOOP: NoopMessage,
-                            MsgType.REQUEST: RequestMessage,
-                            MsgType.REPLY: ReplyMessage,
-                            MsgType.DATA: DataMessage,
-                            MsgType.CANCEL: CancelMessage,
-                            MsgType.STATE: StateMessage,
-                            MsgType.CLOSE: CloseMessage,
-                            MsgType.ERROR: ErrorMessage,
-                            (MsgType.REQUEST, RequestCode.CON_REPEAT): RequestConRepeat,
-                            (MsgType.REPLY, RequestCode.SVC_ABILITIES): ReplySvcAbilities,
-                           }
-        self._request_enums = [RequestCode]
-        self._error_enums = [ErrorCode]
-        self.uid = PROTOCOL_UID
-        self.revision = PROTOCOL_REVISION
-    def is_request_code(self, code: int) -> bool:
-        """Returns True if `get_request_code()` does not raise a ValueError."""
-        try:
-            self.get_request_code(code)
-        except ValueError:
-            return False
-        return True
-    def get_request_code(self, code: int) -> IntEnum:
-        """Returns `enum` value for request code.
-
-Looks up the proper enum value in internal `_request_enums` list.
-"""
-        for _enum in self._request_enums:
-            if code in _enum._value2member_map_: # pylint: disable=E1101
-                return _enum(code)
-        raise ValueError(f"Invalid Request Code ({code})")
-    def is_error_code(self, code: int) -> bool:
-        """Returns True if `get_error_code()` does not raise a ValueError."""
-        try:
-            self.get_error_code(code)
-        except ValueError:
-            return False
-        return True
-    def get_error_code(self, code: int) -> IntEnum:
-        """Returns `enum` value for error code.
-
-Looks up the proper enum value in internal `_error_enums` list.
-"""
-        for _enum in self._error_enums:
-            if code in _enum._value2member_map_: # pylint: disable=E1101
-                return _enum(code)
-        raise ValueError(f"Invalid Request Code ({code})")
-    def create_message_for(self, message_type: int, token: Optional[bytes] = None,
+    MESSAGE_MAP = {MsgType.HELLO: HelloMessage,
+                   MsgType.WELCOME: WelcomeMessage,
+                   MsgType.NOOP: NoopMessage,
+                   MsgType.REQUEST: RequestMessage,
+                   MsgType.REPLY: ReplyMessage,
+                   MsgType.DATA: DataMessage,
+                   MsgType.CANCEL: CancelMessage,
+                   MsgType.STATE: StateMessage,
+                   MsgType.CLOSE: CloseMessage,
+                   MsgType.ERROR: ErrorMessage,
+                  }
+    @classmethod
+    def instance(cls):
+        """Returns global FBSP protocol instance."""
+        return _FBSP_INSTANCE
+    def create_message_for(self, message_type: int, token: Optional[Token] = None,
                            type_data: Optional[int] = None,
-                           flags: Optional[Flag] = None) -> Message:
+                           flags: Optional[MsgFlag] = None) -> TMessage:
         """Create new :class:`Message` child class instance for particular FBSP message type.
 
 Uses :attr:`message_map` dictionary to find appropriate Message descendant for the messsage.
-First looks for `(message_type, type_data)` entry, then for `message_type`. Raises
-an exception if no entry is found.
+Raises an exception if no entry is found.
 
 Arguments:
     :message_type: Type of message to be created
@@ -852,12 +676,10 @@ Returns:
 Raises:
     :ValueError: If there is no class associated with `message_type`.
 """
-        cls = self.message_map.get((message_type, type_data))
-        if not cls:
-            cls = self.message_map.get(message_type)
+        cls = self.MESSAGE_MAP.get(message_type)
         if not cls:
             raise ValueError("Unknown message type: %d" % message_type)
-        msg = cls(self)
+        msg = cls()
         if token is not None:
             msg.token = token
         if type_data is not None:
@@ -865,21 +687,14 @@ Raises:
         if flags is not None:
             msg.flags = flags
         return msg
-    def create_ack_reply(self, msg: Message) -> Message:
+    def create_ack_reply(self, msg: TMessage) -> TMessage:
         """Returns new Message that is an ACK-REPLY response message.
 """
         reply = self.create_message_for(msg.message_type, msg.token, msg.type_data,
                                         msg.flags)
-        reply.clear_flag(Flag.ACK_REQ)
-        reply.set_flag(Flag.ACK_REPLY)
+        reply.clear_flag(MsgFlag.ACK_REQ)
+        reply.set_flag(MsgFlag.ACK_REPLY)
         return reply
-    def create_message(self) -> Message:
-        """Create new FBSP protocol message instance.
-
-Returns:
-   New :class:`Message` instance.
-"""
-        return Message(self)
     def create_welcome_reply(self, msg: HelloMessage) -> WelcomeMessage:
         """Create new WelcomeMessage that is a reply to client's HELLO.
 
@@ -890,7 +705,7 @@ Returns:
     New :class:`WelcomeMessage` instance.
 """
         return self.create_message_for(MsgType.WELCOME, msg.token)
-    def create_error_for(self, msg: Message, error_code: IntEnum) -> ErrorMessage:
+    def create_error_for(self, msg: TMessage, error_code: IntEnum) -> ErrorMessage:
         """Create new ErrorMessage that relates to specific message.
 
 Arguments:
@@ -938,22 +753,23 @@ Returns:
     New :class:`DataMessage` instance.
 """
         return self.create_message_for(MsgType.DATA, msg.token)
-    def create_request_for(self, request_code: int,
-                           token: Optional[bytes] = None) -> RequestMessage:
-        """Create new RequestMessage that is best suited for specific Request Code.
+    def create_request_for(self, interface_id, api_code: int,
+                           token: Optional[Token] = None) -> RequestMessage:
+        """Create new RequestMessage that is best suited for specific request.
 
 Arguments:
-    :request_code: Request Code
+    :interface_id: Interface Identification Number
+    :api_code:     API Code
     :token:        Message token
 
 Returns:
     New :class:`RequestMessage` (or descendant) instance.
 """
-        return self.create_message_for(MsgType.REQUEST, token, request_code)
+        return self.create_message_for(MsgType.REQUEST, token, bb2h(interface_id, api_code))
     def has_greeting(self) -> bool:
         "Returns True if protocol uses greeting messages."
         return True
-    def parse(self, zmsg: Sequence) -> BaseMessage:
+    def parse(self, zmsg: Sequence) -> TMessage:
         """Parse ZMQ message into protocol message.
 
 Arguments:
@@ -965,7 +781,7 @@ Returns:
         control_byte: int
         flags: int
         type_data: int
-        token: bytes
+        token: Token
         #
         header = msg_bytes(zmsg[0])
         if isinstance(header, zmq.Frame):
@@ -988,22 +804,24 @@ Raises:
         Message.validate_cframe(zmsg)
         (control_byte, flags) = unpack('!4xBB10x', msg_bytes(zmsg[0]))
         message_type = control_byte >> 3
-        flags = Flag(flags)
+        flags = MsgFlag(flags)
         if kwargs.get('greeting', False):
             if not (((message_type == MsgType.HELLO) and (origin == Origin.CLIENT)) or
                     ((message_type == MsgType.WELCOME) and (origin == Origin.SERVICE))):
                 raise InvalidMessageError("Invalid greeting %s from %s" %
                                           (enum_name(message_type), enum_name(origin)))
         if message_type not in self.ORIGIN_MESSAGES[origin]:
-            if Flag.ACK_REPLY not in flags:
+            if MsgFlag.ACK_REPLY not in flags:
                 raise InvalidMessageError("Illegal message type %s from %s" %
                                           (enum_name(message_type), enum_name(origin)))
             if message_type not in self.VALID_ACK:
                 raise InvalidMessageError("Illegal ACK message type %s from %s" %
                                           (enum_name(message_type), enum_name(origin)))
-        self.message_map[message_type].validate_zmsg(zmsg)
+        self.MESSAGE_MAP[message_type].validate_zmsg(zmsg)
 
-class BaseFBSPlHandler(BaseHandler):
+_FBSP_INSTANCE = Protocol()
+
+class BaseFBSPlHandler(BaseMessageHandler):
     """Base class for FBSP message handlers.
 
 Uses `handlers` dictionary to route received messages to appropriate handlers.
@@ -1017,51 +835,53 @@ Messages handled:
     :CLOSE:   Raises NotImplementedError
 
 Abstract methods:
-    :handle_unknown: Default message handler.
-    :handle_data:    Handle DATA message.
-    :handle_close:   Handle CLOSE message.
+    :on_unknown: Default message handler.
+    :on_data:    Handle DATA message.
+    :on_close:   Handle CLOSE message.
 """
-    def __init__(self, chn: BaseChannel, role: Origin):
+    def __init__(self, chn: TChannel, role: Origin):
         super().__init__(chn, role, Session)
-        self.handlers = {MsgType.NOOP: self.h_noop,
-                         MsgType.DATA: self.h_data,
-                         MsgType.CLOSE: self.h_close,
+        self.handlers = {MsgType.NOOP: self.on_noop,
+                         MsgType.DATA: self.on_data,
+                         MsgType.CLOSE: self.on_close,
                         }
-        self.protocol = Protocol()
-    def raise_protocol_violation(self, session: Session, msg: Message) -> None: # pylint: disable=R0201
+        self.protocol = Protocol.instance()
+    def raise_protocol_violation(self, session: TSession, msg: Message) -> None:
         """Raises ServiceError."""
         raise ServiceError("Protocol violation from service, message type: %d" %
                            enum_name(msg.message_type))
-    def send_protocol_violation(self, session: Session, msg: Message) -> None:
+    def send_protocol_violation(self, session: TSession, msg: Message) -> None:
         "Sends ERROR/PROTOCOL_VIOLATION message."
         errmsg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
         err = errmsg.add_error()
         err.description = "Received message is a valid FBSP message, but does not " \
             "conform to the protocol."
         self.send(errmsg, session)
-    def do_nothing(self, session: Session, msg: Message) -> None:
-        """Message handler that does nothing."""
-    def h_unknown(self, session: Session, msg: Message) -> None:
+    def do_nothing(self, session: TSession, msg: Message) -> None:
+        """Message handler that does nothing. Useful for cases when message must be handled
+but no action is required, like handling CANCEL messages in simple protocols.
+"""
+    def on_unknown(self, session: TSession, msg: Message) -> None:
         """Default message handler. Called by `dispatch` when no appropriate message handler
 is found in :attr:`handlers` dictionary.
 """
         raise NotImplementedError
-    def h_noop(self, session: Session, msg: NoopMessage) -> None:
+    def on_noop(self, session: TSession, msg: NoopMessage) -> None:
         "Handle NOOP message. Sends ACK_REPLY back if required, otherwise it will do nothing."
         if msg.has_ack_req():
             self.send(self.protocol.create_ack_reply(msg), session)
-    def h_data(self, session: Session, msg: DataMessage) -> None:
+    def on_data(self, session: TSession, msg: DataMessage) -> None:
         "Handle DATA message."
         raise NotImplementedError
-    def h_close(self, session: Session, msg: CloseMessage) -> None:
+    def on_close(self, session: TSession, msg: CloseMessage) -> None:
         "Handle CLOSE message."
         raise NotImplementedError
-    def dispatch(self, session: Session, msg: BaseMessage) -> None:
+    def dispatch(self, session: TSession, msg: TMessage) -> None:
         """Process message received from peer.
 
 Uses :attr:`handlers` dictionary to find appropriate handler for the messsage.
 First looks for `(message_type, type_data)` entry, then for `message_type`.
-If no appropriate handler is located, calls `handle_unknown()`.
+If no appropriate handler is located, calls `on_unknown()`.
 
 Arguments:
     :session: Session attached to peer.
@@ -1073,7 +893,7 @@ Arguments:
         if handler:
             handler(session, msg)
         else:
-            self.h_unknown(session, msg)
+            self.on_unknown(session, msg)
 
 class ServiceMessagelHandler(BaseFBSPlHandler):
     """Base class for Service handlers that process messages from Client.
@@ -1085,27 +905,26 @@ Dictionary key could be either a `tuple(<message_type>,<type_data>)` or just `<m
 Messages handled:
     :unknown: Sends ERROR/INVALID_MESSAGE back to the client.
     :HELLO:   Sets session.greeting. MUST be overridden to send WELCOME message.
-    :WELCOME: Sends sends ERROR/PROTOCOL_VIOLATION.
+    :WELCOME: Sends ERROR/PROTOCOL_VIOLATION.
     :NOOP:    Sends ACK_REPLY back if required, otherwise it will do nothing.
     :REQUEST: Fall-back that sends an ERROR/BAD_REQUEST message.
     :REPLY:   Handles ACK_REPLY, sends ERROR/PROTOCOL_VIOLATION if it's not the ACK_REPLY.
-    :DATA:    Raises NotImplementedError
+    :DATA:    Sends ERROR/PROTOCOL_VIOLATION.
     :CANCEL:  Raises NotImplementedError
-    :STATE:   Sends sends ERROR/PROTOCOL_VIOLATION.
+    :STATE:   Sends ERROR/PROTOCOL_VIOLATION.
     :CLOSE:   Disconnects from remote endpoint if defined, discards current session.
-    :ERROR:   Sends sends ERROR/PROTOCOL_VIOLATION.
+    :ERROR:   Sends ERROR/PROTOCOL_VIOLATION.
 
 Abstract methods:
-    :handle_data:    Handle DATA message.
     :handle_cancel:  Handle CANCEL message.
 """
     def __init__(self, chn: BaseChannel, service):
         super().__init__(chn, Origin.SERVICE)
-        self.impl: ServiceImpl = service
-        self.handlers.update({MsgType.HELLO: self.h_hello,
-                              MsgType.REQUEST: self.h_request,
-                              MsgType.CANCEL: self.h_cancel,
-                              MsgType.REPLY: self.h_reply,
+        self.impl: TServiceImpl = service
+        self.handlers.update({MsgType.HELLO: self.on_hello,
+                              MsgType.REQUEST: self.on_request,
+                              MsgType.CANCEL: self.on_cancel,
+                              MsgType.REPLY: self.on_reply,
                               MsgType.WELCOME: self.send_protocol_violation,
                               MsgType.STATE: self.send_protocol_violation,
                               MsgType.ERROR: self.send_protocol_violation,
@@ -1118,9 +937,9 @@ Abstract methods:
                       session)
             if session.endpoint:
                 self.chn.disconnect(session.endpoint)
-    def on_ack_reply(self, session: Session, msg: ReplyMessage) -> None:
+    def on_ack_reply(self, session: TSession, msg: ReplyMessage) -> None:
         "Called to handle REPLY/ACK_REPLY message."
-    def h_unknown(self, session: Session, msg: Message) -> None:
+    def on_unknown(self, session: TSession, msg: Message) -> None:
         """Default message handler for unrecognized messages.
 Sends ERROR/INVALID_MESSAGE back to the client.
 """
@@ -1128,7 +947,13 @@ Sends ERROR/INVALID_MESSAGE back to the client.
         err = errmsg.add_error()
         err.description = "Invalid message, type: %d" % msg.message_type
         self.send(errmsg, session)
-    def h_close(self, session: Session, msg: CloseMessage) -> None:
+    def on_data(self, session: TSession, msg: DataMessage) -> None:
+        "Handle DATA message."
+        err_msg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
+        err = err_msg.add_error()
+        err.description = "Data message not allowed"
+        self.send(err_msg, session)
+    def on_close(self, session: TSession, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
@@ -1137,24 +962,24 @@ the session.
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
         self.discard_session(session)
-    def h_hello(self, session: Session, msg: HelloMessage) -> None: # pylint: disable=R0201
+    def on_hello(self, session: TSession, msg: HelloMessage) -> None:
         """Handle HELLO message.
 
 This method MUST be overridden in child classes to send WELCOME message back to the client.
-Overriding method must call `super().handle_hello(session, msg)`.
+Overriding method must call `super().on_hello(session, msg)`.
 """
         session.greeting = msg
-    def h_request(self, session: Session, msg: RequestMessage) -> None:
+    def on_request(self, session: TSession, msg: RequestMessage) -> None:
         """Handle Client REQUEST message.
 
-This is implementation provides a fall-back handler for unsupported request codes (not
+This is implementation that provides a fall-back handler for unsupported request codes (not
 defined in `handler` table) that sends back an ERROR/BAD_REQUEST message.
 """
         self.send(self.protocol.create_error_for(msg, ErrorCode.BAD_REQUEST), session)
-    def h_cancel(self, session: Session, msg: CancelMessage) -> None:
+    def on_cancel(self, session: TSession, msg: CancelMessage) -> None:
         "Handle CANCEL message."
         raise NotImplementedError
-    def h_reply(self, session: Session, msg: ReplyMessage):
+    def on_reply(self, session: TSession, msg: ReplyMessage):
         """Handle REPLY message.
 
 Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
@@ -1180,7 +1005,7 @@ Child classes may update this table with their own handlers in `__init__()`.
 Dictionary key could be either a `tuple(<message_type>,<type_data>)` or just `<message_type>`.
 
 Attributes:
-    :last_token_seen: Token from last message processed by `h_*` handlers or None.
+    :last_token_seen: Token from last message processed by `on_*` handlers or None.
 
 Messages handled:
     :unknown: Raises ServiceError
@@ -1196,41 +1021,28 @@ Messages handled:
     :ERROR:   Raises NotImplementedError
 
 Abstract methods:
-    :handle_reply:   Handle Service REPLY message.
-    :handle_data:    Handle DATA message.
-    :handle_state:   Handle STATE message.
-    :handle_error:   Handle ERROR message received from Service.
+    :on_reply:   Handle Service REPLY message.
+    :on_data:    Handle DATA message.
+    :on_state:   Handle STATE message.
+    :on_error:   Handle ERROR message received from Service.
 """
-    def __init__(self, chn: BaseChannel, instance_uid: UUID, host: str, agent_uid: UUID,
-                 agent_name: str, agent_version: str):
+    def __init__(self, chn: TChannel):
         super().__init__(chn, Origin.CLIENT)
-        self.handlers.update({MsgType.WELCOME: self.handle_welcome,
-                              MsgType.REPLY: self.h_reply,
-                              MsgType.STATE: self.h_state,
-                              MsgType.ERROR: self.h_error,
+        self.handlers.update({MsgType.WELCOME: self.on_welcome,
+                              MsgType.REPLY: self.on_reply,
+                              MsgType.STATE: self.on_state,
+                              MsgType.ERROR: self.on_error,
                               MsgType.HELLO: self.raise_protocol_violation,
                               MsgType.REQUEST: self.raise_protocol_violation,
                               MsgType.CANCEL: self.raise_protocol_violation,
                              })
         self._tcnt = 0 # Token generator
         self.last_token_seen: bytes = None
-        self.desc = pb.PeerIdentification()
-        self.desc.uid = instance_uid.bytes
-        self.desc.host = host
-        self.desc.pid = getpid()
-        self.desc.identity.uid = agent_uid.bytes
-        self.desc.identity.name = agent_name
-        self.desc.identity.version = agent_version
-        self.desc.identity.fbsp.uid = PROTOCOL_UID.bytes
-        self.desc.identity.fbsp.version = str(PROTOCOL_REVISION)
-        self.desc.identity.vendor.uid = VENDOR_UID.bytes
-        self.desc.identity.platform.uid = PLATFORM_UID.bytes
-        self.desc.identity.platform.version = PLATFORM_VERSION
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
-    def new_token(self) -> bytes:
+    def new_token(self) -> Token:
         "Return newly created `token` value."
         self._tcnt += 1
         return pack('Q', self._tcnt)
@@ -1240,12 +1052,12 @@ Abstract methods:
         try:
             self.send(self.protocol.create_message_for(MsgType.CLOSE,
                                                        session.greeting.token), session)
-        except: # pylint: disable=W0702
+        except:
             # channel could be already closed from other side, as we are closing it too
             # we can ignore any send errors
             pass
         self.discard_session(session)
-    def get_response(self, token: bytes, timeout: int = None) -> bool:
+    def get_response(self, token: Token, timeout: int = None) -> bool:
         """Get reponse from Service.
 
 Process incomming messages until timeout reaches out or response arrives. Valid response
@@ -1287,10 +1099,10 @@ Returns:
                 stop = round((monotonic() - start) * 1000) >= timeout
         return False
 
-    def h_unknown(self, session: Session, msg: Message):
+    def on_unknown(self, session: TSession, msg: Message):
         "Default message handler for unrecognized messages. Raises `ServiceError`."
         raise ServiceError("Unhandled %s message from service" % enum_name(msg.message_type))
-    def h_close(self, session: Session, msg: CloseMessage) -> None:
+    def on_close(self, session: TSession, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
@@ -1301,7 +1113,7 @@ the session and raises `ServiceError`.
             self.chn.disconnect(session.endpoint)
         self.discard_session(session)
         raise ServiceError("The service has closed the connection.")
-    def handle_welcome(self, session: Session, msg: WelcomeMessage) -> None:
+    def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:
         """Handle WELCOME message.
 
 Save WELCOME message into session.greeting, or raise `ServiceError` for unexpected WELCOME.
@@ -1311,71 +1123,13 @@ Save WELCOME message into session.greeting, or raise `ServiceError` for unexpect
             session.greeting = msg
         else:
             raise ServiceError("Unexpected WELCOME message")
-    def h_reply(self, session: Session, msg: ReplyMessage) -> None:
+    def on_reply(self, session: TSession, msg: ReplyMessage) -> None:
         "Handle Service REPLY message."
         raise NotImplementedError
-    def h_state(self, session: Session, msg: StateMessage) -> None:
+    def on_state(self, session: TSession, msg: StateMessage) -> None:
         "Handle STATE message."
         raise NotImplementedError
-    def h_error(self, session: Session, msg: ErrorMessage) -> None:
+    def on_error(self, session: TSession, msg: ErrorMessage) -> None:
         "Handle ERROR message received from Service."
         raise NotImplementedError
 
-#
-
-class ServiceImpl(BaseServiceImpl):
-    """Base FBSP service implementation.
-
-Class attributes:
-    :SERVICE_UID:     Must be assigned in child class.
-    :SERVICE_NAME:    Must be assigned in child class.
-    :SERVICE_VERSION: Must be assigned in child class.
-    :PROTOCOL_UID:    Must be assigned in child class.
-    :REQUIRES:        List of required services (UUIDs) [default: empty].
-    :OPTIONAL:        List of optional services (UUIDs) [default: empty].
-
-Attributes:
-    :desc:  PeerIdentification instance.
-"""
-    SERVICE_UID: UUID = None
-    SERVICE_NAME: str = None
-    SERVICE_VERSION: str = None
-    PROTOCOL_UID: UUID = None
-    REQUIRES: List[UUID] = []
-    OPTIONAL: List[UUID] = []
-    def __init__(self):
-        super().__init__()
-        self.desc = pb.PeerIdentification()
-        self.msg_handler = None
-    def initialize(self, svc):
-        "Partial initialization of service identity descriptor."
-        self.desc.uid = uuid1().bytes
-        self.desc.pid = getpid()
-        self.desc.identity.uid = self.SERVICE_UID.bytes
-        self.desc.identity.name = self.SERVICE_NAME
-        self.desc.identity.version = self.SERVICE_VERSION
-        self.desc.identity.fbsp.uid = PROTOCOL_UID.bytes
-        self.desc.identity.fbsp.version = str(PROTOCOL_REVISION)
-        self.desc.identity.vendor.uid = VENDOR_UID.bytes
-        self.desc.identity.platform.uid = PLATFORM_UID.bytes
-        self.desc.identity.platform.version = PLATFORM_VERSION
-
-    instance_id: bytes = property(lambda self: self.desc.uid,
-                                  doc="Service instance identification")
-
-class Service(BaseService): # pylint: disable=W0223
-    """Base FBSP service."""
-    def validate(self):
-        super().validate()
-        # check implementation class
-        assert isinstance(self.impl.SERVICE_UID, UUID), "Service implementation UID not defined"
-        assert self.impl.SERVICE_NAME, "Service implementation NAME not defined"
-        assert self.impl.SERVICE_VERSION, "Service implementation VERSION not defined"
-        assert isinstance(self.impl.PROTOCOL_UID, UUID), \
-               "Service implementation PROTOCOL_ID not defined"
-        # check peer identification
-        assert self.impl.desc.uid, "Service instance UID not defined"
-        assert self.impl.desc.host, "Service host not defined"
-        assert self.impl.desc.identity.protocol.uid, "Service protocol UID not defined"
-        assert self.impl.desc.identity.protocol.version, "Service protocol version not defined"
-        assert self.impl.desc.identity.classification, "Service classification not defined"

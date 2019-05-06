@@ -34,8 +34,8 @@
 """Test runner for ROMAN service (classic version)
 """
 
-from saturnin.sdk.fbsptest import BaseTestRunner, zmq
-from saturnin.service.roman.api import RomanRequest, Protocol
+from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg, print_session
+from saturnin.service.roman.api import RomanRequest
 from saturnin.service.roman.client import RomanClient
 
 class TestRunner(BaseTestRunner):
@@ -43,7 +43,6 @@ class TestRunner(BaseTestRunner):
 """
     def __init__(self, context):
         super().__init__(context)
-        self.protocol = Protocol()
         self.test_data = [b"Back to the Future (1985) takes place in year 1985",
                           b"Back to the Future 2 (1989) takes place in year 2015",
                           b"Back to the Future 3 (1990) takes place in year 1885"]
@@ -59,23 +58,21 @@ class TestRunner(BaseTestRunner):
     def raw_roman(self, socket: zmq.Socket):
         "Raw test of ROMAN request."
         print("Sending ROMAN request:")
-        msg = self.protocol.create_request_for(RomanRequest.ROMAN, self.get_token())
+        msg = self.protocol.create_request_for(1, RomanRequest.ROMAN, self.get_token())
         msg.data.extend(self.test_data)
-        self.print_msg(msg)
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
     def _client_handshake(self, channel, endpoint: str):
         "Client test of ROMAN handshake."
-        with RomanClient(channel, self.instance_id, self.host, self.agent_id,
-                         self.agent_name, self.agent_version) as cli:
+        with RomanClient(channel, self.peer, self.agent) as cli:
             cli.open(endpoint)
-            self.print_session(cli.get_session())
+            print_session(cli.get_session())
     def client_roman(self, channel, endpoint: str):
         "Client test of roman() API call."
-        with RomanClient(channel, self.instance_id, self.host, self.agent_id,
-                         self.agent_name, self.agent_version) as cli:
+        with RomanClient(channel, self.peer, self.agent) as cli:
             cli.open(endpoint)
             self.run_request(cli.roman)

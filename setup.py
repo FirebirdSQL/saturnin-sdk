@@ -6,7 +6,7 @@ https://github.com/pypa/sampleproject
 """
 
 # To use a consistent encoding
-from codecs import open # pylint: disable=W0622
+from codecs import open
 from os import path
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
@@ -22,7 +22,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='saturnin-sdk',
-    version='0.2',
+    version='0.3',
     description='Reference implementation of Firebird Butler specification(s) in Python',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",

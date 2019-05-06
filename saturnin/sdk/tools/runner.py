@@ -37,13 +37,16 @@
 """
 
 from typing import Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid1
+from os import getpid
 from argparse import ArgumentParser
 from threading import Thread, Event
 from time import sleep
 from pkg_resources import iter_entry_points
 import zmq
-from saturnin.sdk.classic import SimpleService, SimpleServiceImpl
+from saturnin.sdk.types import PeerDescriptor, ServiceDescriptor, DependencyType
+from saturnin.sdk.base import load
+#from saturnin.sdk.classic import SimpleService, SimpleServiceImpl
 
 __VERSION__ = '0.1'
 
@@ -64,34 +67,44 @@ def get_best_endpoint(endpoints) -> Optional[str]:
 
 class Service(Thread):
     "Classic Simple Butler Service executed in its own thread."
-    def __init__(self, name: str, endpoints: List[str], service_class: SimpleServiceImpl):
+    def __init__(self, name: str, endpoints: List[str], svc_descriptor: ServiceDescriptor):
         super().__init__()
+        self.uid = svc_descriptor.agent.uid
         self.name = name
         self.endpoints = endpoints
-        self.service_class = service_class
+        self.svc_descriptor = svc_descriptor
+        self.svc_implementation = load(svc_descriptor.implementation)
+        self.svc_class = load(svc_descriptor.container)
         self.stop_event = Event()
         self.remotes: Dict[str, str] = {}
     def run(self):
-        svc = SimpleService(self.service_class(self.stop_event, self.endpoints, self.remotes))
+        svc_impl = self.svc_implementation()
+        svc_impl.endpoints = self.endpoints
+        svc_impl.peer = PeerDescriptor(uuid1(), getpid(), 'localhost')
+        svc = self.svc_class(svc_impl, self.stop_event)
         svc.start()
 
-class Runner: # pylint: disable=R0902
+class Runner:
     """Service and test runner"""
     def __init__(self):
-        self.services: Dict[str, Service] = {}
+        self.services: Dict[UUID, Service] = {}
         self.port = 5000
-        self.service_registry = dict((entry.name, entry) for entry
-                                     in iter_entry_points('saturnin.service'))
-        self.service_uids = dict((entry.load(), entry.name) for entry
-                                 in iter_entry_points('saturnin.service.uid'))
-        self.test_registry = dict((entry.name, entry) for entry
-                                  in iter_entry_points('saturnin.test'))
+        service_descriptors = (entry.load() for entry in iter_entry_points('saturnin.service'))
+        self.service_registry = dict((sd.agent.uid, sd) for sd in service_descriptors)
+        self.name_map = dict((sd.agent.name, sd) for sd in self.service_registry.values())
         self.remotes: Dict[str, List] = {}
         self.test = None
         self.ctx = zmq.Context.instance()
-    def get_service_name(self, service_uid: UUID) -> str:
-        """Returns name of service with specified UID or None."""
-        return self.service_uids.get(service_uid)
+    def get_service_by_name(self, name: str) -> Service:
+        """Returns service with specified name or None."""
+        return self.services.get(self.name_map[name].agent.uid)
+    def get_interface_provider(self, interface_uid: UUID) -> Optional[ServiceDescriptor]:
+        """Returns descriptor of service that provides specified interface or None."""
+        for svc_desc in self.service_registry.values():
+            for intf in svc_desc.api:
+                if intf == interface_uid:
+                    return svc_desc
+        return None
     def load_remote_services(self, remote_services: List):
         "Prepare remote services."
         for service_spec in remote_services:
@@ -112,12 +125,12 @@ class Runner: # pylint: disable=R0902
             if not endpoints:
                 endpoints.append(f'inproc://{service_name}')
             self.remotes[service_name] = endpoints
-    def load_services(self, services: List): # pylint: disable=R0912
+    def load_services(self, services: List):
         "Prepare services for running."
         for service_spec in services:
             service_name = service_spec.pop(0)
             endpoints = []
-            if service_name not in self.service_registry:
+            if service_name not in self.name_map:
                 raise Exception(f"Service '{service_name}' not registered")
             for endpoint in service_spec:
                 if protocol_name(endpoint) not in ['inproc', 'ipc', 'tcp']:
@@ -133,40 +146,29 @@ class Runner: # pylint: disable=R0902
                     endpoints.append(endpoint)
             if not endpoints:
                 endpoints.append(f'inproc://{service_name}')
-            try:
-                service_class = self.service_registry[service_name].load()
-            except Exception as exc:
-                raise Exception(f"Can't load service '{service_name}'") from exc
-            service = Service(service_name, endpoints, service_class)
-            self.services[service.name] = service
+            service = Service(service_name, endpoints, self.name_map[service_name])
+            self.services[service.uid] = service
         # Check prerequisites
         for service in self.services.values():
-            for requires in service.service_class.REQUIRES:
-                svc_name = self.get_service_name(requires)
-                if requires in self.services:
-                    remote_service = self.services[self.get_service_name(requires)]
-                    service.remotes[requires] = get_best_endpoint(remote_service.endpoints)
-                elif requires not in self.remotes:
-                    remote_endpoints = self.remotes[requires]
-                    service.remotes[requires] = get_best_endpoint(remote_endpoints)
-                else:
-                    raise Exception(f"Service '{service.name}' requires unavailable service '{requires}'")
-            for optional in service.service_class.OPTIONAL:
-                svc_name = self.get_service_name(optional)
-                if svc_name in self.services:
-                    service.remotes[optional] = get_best_endpoint(self.services[svc_name].endpoints)
-                elif svc_name in self.remotes:
-                    remote_endpoints = self.remotes[svc_name]
-                    service.remotes[optional] = get_best_endpoint(remote_endpoints)
+            for dependency_type, interface_uid in service.svc_descriptor.dependencies:
+                provider_desciptor = self.get_interface_provider(interface_uid)
+                if provider_desciptor.agent.uid in self.services:
+                    remote_service = self.services[provider_desciptor.agent.uid]
+                    service.remotes[interface_uid] = get_best_endpoint(remote_service.endpoints)
+                elif provider_desciptor.agent.name in self.remotes:
+                    remote_endpoints = self.remotes[provider_desciptor.agent.name]
+                    service.remotes[interface_uid] = get_best_endpoint(remote_endpoints)
+                if (provider_desciptor is None and
+                    dependency_type == DependencyType.REQUIRED):
+                    raise Exception(f"Service '{service.name}' requires interface " \
+                                    f"{interface_uid} that is not provided by any registered service.")
     def load_test(self, test_on: str):
         "Prepare tests."
-        test_service = self.services.get(test_on)
+        test_service = self.get_service_by_name(test_on)
         if not test_service:
             raise Exception(f"Test service '{test_on}' not specified by -s or -r option")
-        if test_on not in self.test_registry:
-            raise Exception(f"Tests for service '{test_on}' not registered")
         try:
-            test_class = self.test_registry[test_on].load()
+            test_class = load(test_service.svc_descriptor.tests)
         except Exception as exc:
             raise Exception(f"Can't load test runner for service '{test_on}'") from exc
         self.test = test_class(self.ctx)
@@ -193,7 +195,7 @@ class Runner: # pylint: disable=R0902
         "Run tests."
         test_type = 'raw' if raw else 'client'
         print(f"Running {test_type} tests on '{service_name}' service")
-        test_service = self.services.get(service_name)
+        test_service = self.get_service_by_name(service_name)
         if raw:
             self.test.run_raw_tests(get_best_endpoint(test_service.endpoints))
         else:
@@ -239,7 +241,7 @@ def main():
             print("\nTerminating on user request...")
         finally:
             runner.shutdown()
-    except Exception as exc: # pylint: disable=W0703
+    except Exception as exc:
         print(exc)
     print('Done.')
 

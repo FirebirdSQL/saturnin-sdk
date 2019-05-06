@@ -41,7 +41,7 @@ from typing import List
 from struct import pack, unpack
 from saturnin.service.echo.api import EchoRequest, Protocol
 from saturnin.sdk.base import BaseChannel, ServiceError
-from saturnin.sdk.fbsp import Session, ClientMessageHandler, MsgType, Flag, State, \
+from saturnin.sdk.fbsp import Session, ClientMessageHandler, MsgType, MsgFlag, State, \
      DataMessage, StateMessage, ReplyMessage, ErrorMessage, enum_name, exception_for
 
 class EchoClient(ClientMessageHandler):
@@ -50,18 +50,16 @@ class EchoClient(ClientMessageHandler):
                  agent_name: str, agent_version: str):
         super().__init__(chn, instance_uid, host, agent_uid, agent_name, agent_version)
         self.protocol = Protocol()
-        self.handlers.update({(MsgType.REPLY, EchoRequest.ECHO): self.h_simple_echo,
-                              (MsgType.REPLY, EchoRequest.ECHO_ROMAN): self.h_simple_echo,
+        self.handlers.update({(MsgType.REPLY, EchoRequest.ECHO): self.on_simple_echo,
+                              (MsgType.REPLY, EchoRequest.ECHO_ROMAN): self.on_simple_echo,
                              })
-        self.desc.identity.protocol.uid = self.protocol.uid.bytes
-        self.desc.identity.protocol.version = str(self.protocol.revision)
-    def h_error(self, session: Session, msg: ErrorMessage):
+    def on_error(self, session: Session, msg: ErrorMessage):
         "Handle ERROR message received from Service."
         self.last_token_seen = msg.token
         if msg.token != session.greeting.token:
             session.request_done(msg.token)
         raise exception_for(msg)
-    def h_reply(self, session: Session, msg: ReplyMessage):
+    def on_reply(self, session: Session, msg: ReplyMessage):
         "Handle Service REPLY message."
         req = session.get_request(msg.token)
         req.response = []
@@ -87,10 +85,10 @@ class EchoClient(ClientMessageHandler):
             # This elif branch is pointless and would be removed in normal code. It's here
             # only for sake of clarity how the client side of ECHO protocol works.
             pass
-    def h_data(self, session: Session, msg: DataMessage):
+    def on_data(self, session: Session, msg: DataMessage):
         "Handle DATA message."
         req = session.get_request(msg.token)
-        # DATA messages could be related to different request, so we need the request to
+        # DATA messages could be related to different requests, so we need the request to
         # decide how to handle them.
         if req.request_code in (EchoRequest.ECHO_MORE, EchoRequest.ECHO_DATA_MORE):
             req.response.extend(msg.data)
@@ -123,14 +121,14 @@ class EchoClient(ClientMessageHandler):
                     # It was last one, so stop the loop and wrap up the request.
                     self.last_token_seen = msg.token
                     session.request_done(req)
-    def h_state(self, session: Session, msg: StateMessage):
+    def on_state(self, session: Session, msg: StateMessage):
         "Handle STATE message."
         if msg.state == State.FINISHED:
             self.last_token_seen = msg.token
             session.request_done(msg.token)
         else:
-            raise ServiceError(f"Unexpected STATE {enum_name(msg.state)}")
-    def h_simple_echo(self, session: Session, msg: ReplyMessage):
+            raise ServiceError(f"Unexpected STATE {enum_name(msg.state)} response.")
+    def on_simple_echo(self, session: Session, msg: ReplyMessage):
         "ECHO/ECHO_ROMAN reply handler."
         self.last_token_seen = msg.token
         req = session.get_request(msg.token)
@@ -287,9 +285,9 @@ Returns:
         while data:
             data_msg.data.append(data.pop(0))
             if data:
-                data_msg.set_flag(Flag.MORE)
+                data_msg.set_flag(MsgFlag.MORE)
             else:
-                data_msg.clear_flag(Flag.MORE)
+                data_msg.clear_flag(MsgFlag.MORE)
             self.send(data_msg)
             data_msg.data.clear()
         if not self.get_response(token, kwargs.get('timeout')):
@@ -327,14 +325,13 @@ Returns:
         while data:
             data_msg.data.append(data.pop(0))
             if data:
-                data_msg.set_flag(Flag.ACK_REQ)
+                data_msg.set_flag(MsgFlag.ACK_REQ)
             else:
-                data_msg.clear_flag(Flag.ACK_REQ)
+                data_msg.clear_flag(MsgFlag.ACK_REQ)
             self.send(data_msg)
             # Receive ACK_REPLY
             if data_msg.has_ack_req():
                 if not self.get_response(token, kwargs.get('timeout')):
-                    # pylint: disable=C0301
                     raise TimeoutError("The service did not respond on time to ECHO_DATA_SYNC request")
             data_msg.data.clear()
         # Get data back

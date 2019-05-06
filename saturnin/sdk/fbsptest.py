@@ -41,9 +41,9 @@ from struct import pack
 from uuid import UUID, uuid1
 import zmq
 import saturnin.sdk
+from saturnin.sdk.types import PeerDescriptor, AgentDescriptor, TSession
 from saturnin.sdk.base import ChannelManager, DealerChannel
-from saturnin.sdk.fbsp import Protocol, MsgType, PROTOCOL_UID, PROTOCOL_REVISION, \
-     Message
+from saturnin.sdk.fbsp import Protocol, MsgType, Message
 
 # Functions
 
@@ -51,75 +51,75 @@ def print_title(title, size=80, char='='):
     "Prints centered title surrounded by char."
     print(f"  {title}  ".center(size, char))
 
+def print_msg(msg: Message, indent: int = 4):
+    "Pretty-print message."
+    print('\n'.join(('%s%s' % (' ' * indent, line) for line
+                     in msg.get_printout().splitlines())))
+    print('    ' + '~' * (80 - indent))
+
+def print_session(session: TSession):
+    "Print information about remote peer."
+    print('Service information:')
+    print(f'Peer uid:       {session.peer_id}')
+    print(f'Host:           {session.host}')
+    print(f'PID:            {session.pid}')
+    print(f'Agent ID:       {session.agent_id}')
+    print(f'Agent name:     {session.name}')
+    print(f'Agent version:  {session.version}')
+    print(f'Vendor ID:      {session.vendor}')
+    print(f'Platform ID:    {session.platform}')
+    print(f'Platform ver.:  {session.platform_version}')
+    print(f'Calssification: {session.classification}')
+
 # Classes
 
 class BaseTestRunner:
     """Base Test Runner for Firebird Butler Services and Clients.
 
 Attributes:
-    :ctx:           ZMQ Context instance.
-    :protocol:      Protocol instance. Must be assigned by child class.
-    :instance_id:   Instance UID
-    :host:          Host
-    :agent_id:      Agent UID
-    :agent_name:    Agent name
-    :agent_version: Agent version
+    :ctx:      ZMQ Context instance.
+    :protocol: FBSP Protocol instance.
+    :peer:     PeerDescriptor
+    :agent:    AgentDescriptor
 """
     def __init__(self, context: zmq.Context = None):
         self.ctx = context if context else zmq.Context.instance()
         self._cnt = 0
-        self.protocol: Protocol = None
-        self.instance_id: UUID = uuid1()
-        self.host: str = 'localhost'
-        self.agent_id: UUID = UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e')
-        self.agent_name: str = "Saturnin SDK test client"
-        self.agent_version: str = "1.0"
+        self.protocol: Protocol = Protocol.instance()
+        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), 'localhost')
+        self.agent: AgentDescriptor = AgentDescriptor(UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e'),
+                                                      "Saturnin SDK test client",
+                                                      "Saturnin SDK test system",
+                                                      '1.0',
+                                                      saturnin.sdk.VENDOR_UID,
+                                                      'system/test',
+                                                      saturnin.sdk.PLATFORM_UID,
+                                                      saturnin.sdk.PLATFORM_VERSION
+                                                     )
     def get_token(self) -> bytes:
         "Return FBSP message token from integer."
         self._cnt += 1
         return pack('Q', self._cnt)
-    def print_msg(self, msg: Message, indent: int = 4):
-        "Pretty-print message."
-        print('\n'.join(('%s%s' % (' ' * indent, line) for line
-                         in msg.get_printout().splitlines())))
-        print('    ' + '~' * (80 - indent))
-    def print_session(self, session):
-        "Print information about remote peer."
-        print('Service information:')
-        print(f'Peer uid:       {session.peer_id}')
-        print(f'Host:           {session.host}')
-        print(f'PID:            {session.pid}')
-        print(f'Agent ID:       {session.agent_id}')
-        print(f'Agent name:     {session.name}')
-        print(f'Agent version:  {session.version}')
-        print(f'Vendor ID:      {session.vendor}')
-        print(f'Platform ID:    {session.platform}')
-        print(f'Platform ver.:  {session.platform_version}')
-        print(f'Calssification: {session.classification}')
     def _raw_handshake(self, socket: zmq.Socket):
         "Raw ZMQ FBSP handshake test."
         print("Sending HELLO:")
         msg = self.protocol.create_message_for(MsgType.HELLO, self.get_token())
-        msg.peer.uid = self.instance_id.bytes
-        msg.peer.host = self.host
-        msg.peer.pid = os.getpid()
-        msg.peer.identity.uid = self.agent_id.bytes
-        msg.peer.identity.name = self.agent_name
-        msg.peer.identity.version = self.agent_version
-        msg.peer.identity.fbsp.uid = PROTOCOL_UID.bytes
-        msg.peer.identity.fbsp.version = str(PROTOCOL_REVISION)
-        msg.peer.identity.protocol.uid = self.protocol.uid.bytes
-        msg.peer.identity.protocol.version = str(self.protocol.revision)
-        msg.peer.identity.vendor.uid = saturnin.sdk.VENDOR_UID.bytes
-        msg.peer.identity.platform.uid = saturnin.sdk.PLATFORM_UID.bytes
-        msg.peer.identity.platform.version = saturnin.sdk.PLATFORM_VERSION
-        self.print_msg(msg)
+        msg.peer.instance.uid = self.peer.uid.bytes
+        msg.peer.instance.pid = self.peer.pid
+        msg.peer.instance.host = self.peer.host
+        msg.peer.client.uid = self.agent.uid.bytes
+        msg.peer.client.name = self.agent.name
+        msg.peer.client.version = self.agent.version
+        msg.peer.client.vendor.uid = self.agent.vendor_uid.bytes
+        msg.peer.client.platform.uid = self.agent.platform_uid.bytes
+        msg.peer.client.platform.version = self.agent.platform_version
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving response:")
         # get WELCOME
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
     def _run(self, test_names: List, *args):
         "Run test methods."
         start = monotonic()
@@ -128,7 +128,7 @@ Attributes:
                 print_title(name.replace('_raw_', '').replace('_client_', '').upper())
                 test = getattr(self, name)
                 test(*args)
-            except Exception as exc: # pylint: disable=W0703
+            except Exception as exc:
                 print_title("ERROR", char="*")
                 print(exc)
         print_title("End")
@@ -140,6 +140,7 @@ Attributes:
                                                    if name.startswith('raw_')]
         test_list.insert(0, '_raw_handshake')
         socket = self.ctx.socket(zmq.DEALER)
+        socket.identity = b'runner'
         socket.connect(endpoint)
         self._run(test_list, socket)
         socket.close()

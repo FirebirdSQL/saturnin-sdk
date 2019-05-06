@@ -6,7 +6,7 @@ https://github.com/pypa/sampleproject
 """
 
 # To use a consistent encoding
-from codecs import open # pylint: disable=W0622
+from codecs import open
 from os import path
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
@@ -64,17 +64,8 @@ setup(
         'Funding': 'https://www.firebirdsql.org/en/donate/',
         'Source': 'https://github.com/FirebirdSQL/saturnin-sdk',
         },
-    entry_points={'saturnin.service': ['roman = saturnin.service.roman.service:RomanServiceImpl',
-                                       'echo = saturnin.service.echo.service:EchoServiceImpl'
+    entry_points={'saturnin.service': ['roman = saturnin.service.roman.api:SERVICE_DESCRIPTION',
+                                       #'echo = saturnin.service.echo.service:EchoServiceImpl'
                                       ],
-                  'saturnin.service.uid': ['roman = saturnin.service.roman.api:SERVICE_UID',
-                                           'echo = saturnin.service.echo.api:SERVICE_UID'
-                                          ],
-                  'saturnin.client': ['roman = saturnin.service.roman.client:RomanClient',
-                                      'echo = saturnin.service.echo.client:EchoClient'
-                                     ],
-                  'saturnin.test': ['roman = saturnin.service.roman.test:TestRunner',
-                                    'echo = saturnin.service.echo.test:TestRunner'
-                                   ],
                  }
 )

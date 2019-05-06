@@ -42,35 +42,36 @@ Supported requests:
 
 from enum import IntEnum
 from uuid import UUID
-from saturnin.sdk import fbsp
-
-# It's not an official protocol, so we can use any UUID constants
-PROTOCOL_UID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
-PROTOCOL_REVISION = 1
+from saturnin.sdk import VENDOR_UID
+from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
+SERVICE_VERSION: str = '0.2'
+
+ROMAN_INTERFACE_UID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
 
 #  Request Codes
 
 class RomanRequest(IntEnum):
     "Roman Service Request Code"
-    ROMAN = 1000
+    ROMAN = 1
 
-# Error Codes
+#  Service description
 
-class RomanError(IntEnum):
-    "Roman Service Error Code"
-    PROTOCOL_VIOLATION = 1000
+SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
+                                "roman",
+                                "Sample ROMAN service",
+                                SERVICE_VERSION,
+                                VENDOR_UID,
+                                "example/roman",
+                               )
+SERVICE_INTERFACE = InterfaceDescriptor(ROMAN_INTERFACE_UID, "Roman service API", 1,
+                                        RomanRequest)
+SERVICE_API = [SERVICE_INTERFACE]
 
-# ECHO protocol
-
-class Protocol(fbsp.Protocol):
-    """ROMAN FBSP protocol.
-"""
-    def __init__(self):
-        super().__init__()
-        self._error_enums.append(RomanError)
-        self._request_enums.append(RomanRequest)
-        self.uid = PROTOCOL_UID
-        self.revision = PROTOCOL_REVISION
+SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT, SERVICE_API, [],
+                                        'saturnin.service.roman.service:RomanServiceImpl',
+                                        'saturnin.sdk.classic:SimpleService',
+                                        'saturnin.service.roman.client:RomanClient',
+                                        'saturnin.service.roman.test:TestRunner')
