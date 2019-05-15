@@ -34,7 +34,8 @@
 "Saturnin SDK - Base classes and other definitions"
 
 import sys
-from typing import Any, Dict, List, Sequence, Mapping, ValuesView, Optional
+import logging
+from typing import Any, Dict, List, Sequence, ValuesView, Optional
 from uuid import uuid5, NAMESPACE_OID, UUID
 from weakref import proxy
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
@@ -45,6 +46,10 @@ from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, TService,
 # Constants
 
 INTERNAL_ROUTE = b'INTERNAL'
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Functions
 def peer_role(my_role: Origin) -> Origin:
@@ -96,6 +101,7 @@ Arguments:
         return self.ctx.socket(socket_type, **kwargs)
     def add(self, channel):
         """Add channel to the manager."""
+        log.debug("%s.add", self.__class__.__name__)
         channel._mngr = proxy(self)
         i = get_unique_key(self._ch)
         channel.uid = i
@@ -103,21 +109,24 @@ Arguments:
         channel.create_socket()
     def remove(self, channel):
         """Remove channel from the manager."""
+        log.debug("%s.remove", self.__class__.__name__)
         self.unregister(channel)
         channel._mngr = None
-        channel.uid = None
         del self._ch[channel.uid]
+        channel.uid = None
     def is_registered(self, channel) -> bool:
         """Returns True if channel is registered in Poller."""
         assert channel.socket, "Channel socket not created"
         return channel.socket in self._poller._map
     def register(self, channel):
         """Register channel in Poller."""
+        log.debug("%s.register", self.__class__.__name__)
         if not self.is_registered(channel):
             self._poller.register(channel.socket, POLLIN)
             self.__chmap[channel.socket] = channel
     def unregister(self, channel):
         """Unregister channel from Poller."""
+        log.debug("%s.unregister", self.__class__.__name__)
         if self.is_registered(channel):
             self._poller.unregister(channel.socket)
             del self.__chmap[channel.socket]
@@ -137,6 +146,7 @@ Returns:
 Arguments:
     :linger: Linger parameter for `BaseChannel.terminate()`
 """
+        log.debug("Shutting down channel manager")
         for chn in self.channels:
             self.unregister(chn)
             chn.close(*args)
@@ -345,6 +355,8 @@ Arguments:
 
 Called when channel is assigned to manager.
 """
+        log.debug("%s.create_socket [%s/%s]", self.__class__.__name__, self.socket_type,
+                  self.identity)
         self.socket = self.manager.create_socket(self.socket_type)
         if self._identity:
             self.socket.identity = self._identity
@@ -369,6 +381,7 @@ Raises:
     :ChannelError: On attempt to a) bind another endpoint for PAIR socket, or b) bind
     to already binded endpoint.
 """
+        log.debug("%s.bind(%s)", self.__class__.__name__, endpoint)
         assert self.mode != SocketMode.CONNECT
         if (self.socket.socket_type == PAIR) and self.endpoints:
             raise ChannelError("Cannot open multiple endpoints for PAIR socket")
@@ -388,6 +401,7 @@ Arguments:
 Raises:
     :ChannelError: If channel is not binded to specified `endpoint`.
 """
+        log.debug("%s.unbind(%s)", self.__class__.__name__, endpoint)
         assert self.mode == SocketMode.BIND
         if endpoint and endpoint not in self.endpoints:
             raise ChannelError(f"Endpoint '{endpoint}' not openned")
@@ -405,6 +419,7 @@ Raises:
     :ChannelError: On attempt to a) connect another endpoint for PAIR socket, or b) connect
     to already connected endpoint.
 """
+        log.debug("%s.connect(%s,%s)", self.__class__.__name__, endpoint, routing_id)
         assert self.mode != SocketMode.BIND
         if (self.socket.socket_type == PAIR) and self.endpoints:
             raise ChannelError("Cannot open multiple endpoints for PAIR socket")
@@ -426,6 +441,7 @@ Arguments:
 Raises:
     :ChannelError: If channel is not connected to specified `endpoint`.
 """
+        log.debug("%s.disconnect(%s)", self.__class__.__name__, endpoint)
         assert self.mode == SocketMode.CONNECT
         if endpoint and endpoint not in self.endpoints:
             raise ChannelError(f"Endpoint '{endpoint}' not openned")
@@ -438,11 +454,13 @@ Raises:
             self._mode = SocketMode.UNKNOWN
     def send(self, zmsg: List):
         "Send ZMQ multipart message."
+        log.debug("%s.send", self.__class__.__name__)
         assert Direction.OUT in self.direction, \
                "Call to send() on RECEIVE-only channel"
         self.socket.send_multipart(zmsg, NOBLOCK)
     def receive(self) -> List:
         "Receive ZMQ multipart message."
+        log.debug("%s.receive", self.__class__.__name__)
         assert Direction.IN in self.direction, \
                "Call to receive() on SEND-only channel"
         return self.socket.recv_multipart(NOBLOCK)
@@ -452,6 +470,7 @@ Raises:
 Arguments:
     :linger: (int) Linger parameter for `zmq.socket.close()`
 """
+        log.debug("%s.close", self.__class__.__name__)
         self.socket.close(*args)
         if self.handler:
             self.handler.closing()
@@ -495,6 +514,7 @@ Arguments:
         self.__scls: TSession = session_class
     def create_session(self, routing_id: bytes):
         """Session object factory."""
+        log.debug("%s.create_session(%s)", self.__class__.__name__, routing_id)
         session = self.__scls(routing_id)
         self.sessions[routing_id] = session
         return session
@@ -509,6 +529,7 @@ If `session.endpoint` value is set, it also disconnects channel from this endpoi
 Arguments:
     :session: Session object to be discarded.
 """
+        log.debug("%s.discard_session(%s)", self.__class__.__name__, session.routing_id)
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
         del self.sessions[session.routing_id]
@@ -522,16 +543,21 @@ The base implementation does nothing.
 
 The base implementation does nothing.
 """
+        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
     def on_invalid_greeting(self, exc: InvalidMessageError):
         """Called by `receive()` on Invalid Greeting event.
 
 The base implementation does nothing.
 """
+        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
     def on_dispatch_error(self, session: TSession, exc: Exception):
         """Called by `receive()` on Exception unhandled by `dispatch()`.
 
 The base implementation does nothing.
 """
+        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
     def connect_peer(self, endpoint: str, routing_id: bytes = None) -> TSession:
         """Connects to a remote peer and creates a session for this connection.
 
@@ -539,6 +565,7 @@ Arguments:
     :endpoint:   Endpoint for connection.
     :routing_id: Channel routing ID (required for routed channels)
 """
+        log.debug("%s.connect_peer(%s,%s)", self.__class__.__name__, endpoint, routing_id)
         if self.chn.routed:
             assert routing_id
         else:
@@ -596,7 +623,6 @@ class BaseServiceImpl:
 Attributes:
     :mngr: ChannelManager instance. NOT INITIALIZED.
     :endpoints: List of end points to which the service shall bind itself. Initially empty.
-    :remotes: Dictionary of remote services endpoints [service_uid:addresss]. Initially empty.
 
 Configuration options (retrieved via `get()`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 0].
@@ -607,7 +633,6 @@ Abstract methods:
     def __init__(self):
         self.mngr: ChannelManager = None
         self.endpoints: Sequence = []
-        self.remotes: Mapping[bytes, str] = {}
     def get(self, name: str, *args) -> Any:
         """Returns value of variable.
 
@@ -634,13 +659,10 @@ needed for initialization and configuration.
 Raises:
     :AssertionError: When any issue is detected.
 """
+        log.debug("%s.validate", self.__class__.__name__)
         assert isinstance(self.endpoints, Sequence)
         for entrypoint in self.endpoints:
             assert isinstance(entrypoint, str)
-        assert isinstance(self.remotes, Mapping)
-        for uid, address in self.remotes.items():
-            assert isinstance(uid, bytes)
-            assert isinstance(address, str)
     def initialize(self, svc: TService):
         """Service initialization.
 
@@ -653,6 +675,7 @@ Must create the channel manager with zmq.context and at least one communication 
 Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
 is not defined, uses linger 0 for forced shutdown.
 """
+        log.debug("%s.finalize", self.__class__.__name__)
         self.mngr.shutdown(self.get('shutdown_linger', 0))
     def configure(self, svc: TService):
         "Service configuration. Default implementation does nothing."
@@ -675,12 +698,18 @@ Arguments:
     :impl:    Service implementation.
 """
         self.impl = impl
+    def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
+        """Return address of interface provider or None if it's not available. Default
+implementation always returns None.
+"""
+        return None
     def validate(self):
         """Validate that service is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
+        log.debug("%s.validate", self.__class__.__name__)
         assert isinstance(self.impl.mngr, ChannelManager), "Channel manager required"
         assert isinstance(self.impl.mngr.ctx, Context), "Channel manager without ZMQ context"
         assert self.impl.mngr.channels, "Channel manager without channels"
@@ -693,6 +722,7 @@ Raises:
         """Starts the service. It initializes, configures, validates and then runs the
 service. Performs finalization when run() finishes.
 """
+        log.info("Starting service %s:%s", self.impl.agent.name, self.impl.agent.uid)
         self.impl.validate()
         self.impl.initialize(self)
         self.impl.configure(self)
@@ -704,6 +734,7 @@ service. Performs finalization when run() finishes.
             self.run()
         finally:
             self.impl.finalize(self)
+        log.info("Service %s:%s stopped", self.impl.agent.name, self.impl.agent.uid)
 
 # Channels for individual ZMQ socket types
 class DealerChannel(BaseChannel):

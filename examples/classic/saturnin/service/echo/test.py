@@ -35,9 +35,10 @@
 """
 
 from struct import pack, unpack
-from saturnin.sdk.fbsptest import BaseTestRunner, zmq
+from saturnin.sdk.types import TChannel, TClient
+from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg
 from saturnin.sdk.fbsp import StateMessage, MsgType, MsgFlag
-from saturnin.service.echo.api import EchoRequest, Protocol
+from saturnin.service.echo.api import EchoRequest, ECHO_INTERFACE_UID
 from saturnin.service.echo.client import EchoClient
 
 class TestRunner(BaseTestRunner):
@@ -45,98 +46,99 @@ class TestRunner(BaseTestRunner):
 """
     def __init__(self, context):
         super().__init__(context)
-        self.protocol = Protocol()
+        self.interface_uid = ECHO_INTERFACE_UID.bytes
         self.test_data = [b"Back to the Future (1985) takes place in year 1985",
                           b"Back to the Future 2 (1989) takes place in year 2015",
                           b"Back to the Future 3 (1990) takes place in year 1885"]
+    def create_client(self, channel: TChannel) -> TClient:
+        return EchoClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
         "Execute Client API call."
-        try:
-            print('Sent:')
-            for line in self.test_data:
-                print(' ' * 4, line)
-            data = api_call(*self.test_data)
-            print('Received:')
-            for line in data:
-                print(' ' * 4, line)
-        except Exception as exc:
-            print(exc)
-            if exc.__cause__:
-                print("Cause:\n", exc.__cause__)
+        print('Sent:')
+        for line in self.test_data:
+            print(' ' * 4, line)
+        data = api_call(*self.test_data)
+        print('Received:')
+        for line in data:
+            print(' ' * 4, line)
     def raw_echo(self, socket: zmq.Socket):
         "Raw test of ECHO request."
         print("Sending ECHO request:")
-        msg = self.protocol.create_request_for(EchoRequest.ECHO, self.get_token())
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO,
+                                               self.get_token())
         msg.data.extend(self.test_data)
-        self.print_msg(msg)
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
     def raw_echo_more(self, socket: zmq.Socket):
         "Raw test of ECHO_MORE request."
         print("Sending ECHO_MORE request:")
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_MORE, self.get_token())
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_MORE,
+                                               self.get_token())
         msg.data.extend(self.test_data)
         socket.send_multipart(msg.as_zmsg())
-        self.print_msg(msg)
+        print_msg(msg)
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
         print("Receiving DATA:")
         while True:
             zmsg = socket.recv_multipart()
             msg = self.protocol.parse(zmsg)
-            self.print_msg(msg)
+            print_msg(msg)
             if not msg.has_more():
                 break
         print("    End of data stream")
     def raw_echo_state(self, socket: zmq.Socket):
         "Raw test of ECHO_STATE request."
         print("Sending ECHO_STATE request:")
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_STATE, self.get_token())
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_STATE,
+                                               self.get_token())
         msg.data.extend(self.test_data)
-        self.print_msg(msg)
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
         print("Receiving DATA:")
         while True:
             zmsg = socket.recv_multipart()
             msg = self.protocol.parse(zmsg)
-            self.print_msg(msg)
+            print_msg(msg)
             if isinstance(msg, StateMessage):
                 break
         print("    End of data stream")
     def raw_echo_sync(self, socket: zmq.Socket):
         "Raw test of ECHO_SYNC request."
         print("Sending ECHO_SYNC request:")
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_SYNC, self.get_token())
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_SYNC,
+                                               self.get_token())
         msg.data.extend(self.test_data)
-        self.print_msg(msg)
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
-        self.print_msg(msg)
+        print_msg(msg)
         if msg.has_ack_req():
             print("Sending ACK to REPLY:")
             ack = self.protocol.create_ack_reply(msg)
-            self.print_msg(ack)
+            print_msg(ack)
             socket.send_multipart(ack.as_zmsg())
         while True:
             print("Receiving DATA:")
             zmsg = socket.recv_multipart()
             msg = self.protocol.parse(zmsg)
-            self.print_msg(msg)
+            print_msg(msg)
             if msg.has_ack_req():
                 print("Sending ACK to DATA:")
                 ack = self.protocol.create_ack_reply(msg)
-                self.print_msg(ack)
+                print_msg(ack)
                 socket.send_multipart(ack.as_zmsg())
             else:
                 break
@@ -145,14 +147,15 @@ class TestRunner(BaseTestRunner):
         "Raw test of ECHO_DATA_MORE request."
         print("Sending ECHO_DATA_MORE request:")
         token = self.get_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_DATA_MORE, token)
-        self.print_msg(msg)
+        msg = self.protocol.create_request_for(self.interface_id,
+                                               EchoRequest.ECHO_DATA_MORE, token)
+        print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         handle, = unpack('H', msg.data[0])
-        self.print_msg(msg)
+        print_msg(msg)
         print("Sending DATA:")
         msg = self.protocol.create_message_for(MsgType.DATA, token, handle)
         for i, data in enumerate(self.test_data, 1):
@@ -162,13 +165,13 @@ class TestRunner(BaseTestRunner):
                 msg.set_flag(MsgFlag.MORE)
             else:
                 msg.clear_flag(MsgFlag.MORE)
-            self.print_msg(msg)
+            print_msg(msg)
             socket.send_multipart(msg.as_zmsg())
         print("Receiving DATA back:")
         while True:
             zmsg = socket.recv_multipart()
             msg = self.protocol.parse(zmsg)
-            self.print_msg(msg)
+            print_msg(msg)
             if not msg.has_more():
                 break
         print("    End of data stream")
@@ -176,14 +179,15 @@ class TestRunner(BaseTestRunner):
         "Raw test of ECHO_DATA_SYNC request."
         print("Sending ECHO_DATA_SYNC request:")
         token = self.get_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_DATA_SYNC, token)
+        msg = self.protocol.create_request_for(self.interface_id,
+                                               EchoRequest.ECHO_DATA_SYNC, token)
         msg.data.append(pack('H', len(self.test_data)))
         socket.send_multipart(msg.as_zmsg())
         print("Receiving reply:")
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         handle, = unpack('H', msg.data[0])
-        self.print_msg(msg)
+        print_msg(msg)
         msg = self.protocol.create_message_for(MsgType.DATA, token, handle)
         for i, data in enumerate(self.test_data, 1):
             msg.data.clear()
@@ -193,66 +197,39 @@ class TestRunner(BaseTestRunner):
             else:
                 msg.clear_flag(MsgFlag.ACK_REQ)
             print("Sending DATA:")
-            self.print_msg(msg)
+            print_msg(msg)
             socket.send_multipart(msg.as_zmsg())
             if msg.has_ack_req():
                 print("Receiving ACK to DATA:")
                 zmsg = socket.recv_multipart()
                 ack = self.protocol.parse(zmsg)
-                self.print_msg(ack)
+                print_msg(ack)
         print("Receiving DATA back:")
         while True:
             zmsg = socket.recv_multipart()
             msg = self.protocol.parse(zmsg)
-            self.print_msg(msg)
+            print_msg(msg)
             if not msg.has_more():
                 break
         print("    End of data stream")
-    def _client_handshake(self, channel, endpoint: str):
-        "Client test of ECHO handshake."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.print_session(cli.get_session())
-    def client_echo(self, channel, endpoint: str):
+    def client_echo(self, client: TClient):
         "Client test of echo() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo)
-    def client_echo_roman(self, channel, endpoint: str):
+        self.run_request(client.echo)
+    def client_echo_roman(self, client: TClient):
         "Client test of echo_roman() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_roman)
-    def client_echo_more(self, channel, endpoint: str):
+        self.run_request(client.echo_roman)
+    def client_echo_more(self, client: TClient):
         "Client test of echo_more() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_more)
-    def client_echo_state(self, channel, endpoint: str):
+        self.run_request(client.echo_more)
+    def client_echo_state(self, client: TClient):
         "Client test of echo_state() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_state)
-    def client_echo_sync(self, channel, endpoint: str):
+        self.run_request(client.echo_state)
+    def client_echo_sync(self, client: TClient):
         "Client test of echo_sync() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_sync)
-    def client_echo_data_more(self, channel, endpoint: str):
+        self.run_request(client.echo_sync)
+    def client_echo_data_more(self, client: TClient):
         "Client test of echo_data_more() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_data_more)
-    def client_echo_data_sync(self, channel, endpoint: str):
+        self.run_request(client.echo_data_more)
+    def client_echo_data_sync(self, client: TClient):
         "Client test of echo_data_sync() API call."
-        with EchoClient(channel, self.instance_id, self.host, self.agent_id,
-                        self.agent_name, self.agent_version) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.echo_data_sync)
+        self.run_request(client.echo_data_sync)

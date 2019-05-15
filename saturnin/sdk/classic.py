@@ -40,12 +40,17 @@ need to run multiple services in parallel in one application, each service must 
 run in a separate thread or subprocess.
 """
 
-from typing import Any
+import logging
+from typing import Optional, Any, Mapping
 from time import sleep
 from zmq import Context, POLLIN
 from saturnin.sdk.types import TService
 from saturnin.sdk.base import ChannelManager, RouterChannel
 from saturnin.sdk.service import Service, ServiceImpl
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 class DummyEvent:
     """Dummy Event class"""
@@ -87,6 +92,7 @@ Configuration options (retrieved via `get()`):
     - Creates managed (inbound) `RouterChannel` for service.
     - Creates/sets event to stop the service.
 """
+        log.debug("%s.initialize", self.__class__.__name__)
         super().initialize(svc)
         self.mngr = ChannelManager(self.get('zmq_context', Context.instance()))
         self.svc_chn = RouterChannel(self.instance_id)
@@ -95,6 +101,7 @@ Configuration options (retrieved via `get()`):
         """Performs next actions:
     - Binds service router channel to specified endpoints.
 """
+        log.debug("%s.configure", self.__class__.__name__)
         for addr in self.get('endpoints'):
             self.svc_chn.bind(addr)
 
@@ -108,20 +115,29 @@ Attributes:
     :mngr:    ChannelManager
     :event:   Event instance used to send STOP signal to the service.
     :timeout: How long it waits for incoming messages (default 1 sec).
+    :remotes: Dictionary of remote service endpoints [interface_uid:addresss]. Initially empty.
 """
     def __init__(self, impl: SimpleServiceImpl, event: Any):
         super().__init__(impl)
         self.event = event
-        self.timeout = 1000  # 1sec
+        self.timeout: int = 1000  # 1sec
+        self.remotes: Mapping[bytes, str] = {}
+    def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
+        """Return address of interface provider or None if it's not available."""
+        return self.remotes.get(interface_uid)
     def validate(self):
         """Validate that service is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
+        log.debug("%s.validate", self.__class__.__name__)
         super().validate()
         assert hasattr(self.event, 'is_set'), "Event without is_set attribute"
         assert callable(self.event.is_set), "Event is_set is not callable"
+        for uid, address in self.remotes.items():
+            assert isinstance(uid, bytes)
+            assert isinstance(address, str)
     def on_idle(self):
         """Called when wait for messages exceeds timeout. Default implementation
 does nothing.
@@ -129,6 +145,7 @@ does nothing.
     def run(self):
         """Runs the service until `event` is set.
 """
+        log.info("Service %s:%s started", self.impl.agent.name, self.impl.agent.uid)
         while not self.event.is_set():
             events = self.impl.mngr.wait(self.timeout)
             if events:

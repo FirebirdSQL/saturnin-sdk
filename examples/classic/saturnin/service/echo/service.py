@@ -47,19 +47,23 @@ Supported requests:
     :ECHO_DATA_SYNC:  Sends back up to 3 DATA messages using ACK handshake managed by client.
 """
 
-from typing import List
-from uuid import UUID, uuid1
+import logging
+from uuid import uuid1
 from struct import pack, unpack
-from saturnin.service.echo.api import EchoRequest, SERVICE_UID
+from saturnin.service.echo.api import EchoRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.service.roman import api as roman_api
 from saturnin.service.roman.client import RomanClient
 from saturnin.sdk.types import ServiceError, InvalidMessageError
 from saturnin.sdk.base import BaseChannel, BaseService, \
      DealerChannel
 from saturnin.sdk.classic import SimpleServiceImpl
-from saturnin.sdk.fbsp import Session, ServiceMessagelHandler, \
+from saturnin.sdk.fbsp import Session, bb2h, ServiceMessagelHandler, \
      MsgType, MsgFlag, State, ErrorCode, HelloMessage, CancelMessage, DataMessage, \
      ReplyMessage, RequestMessage
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Classes
 
@@ -68,43 +72,55 @@ class EchoMessageHandler(ServiceMessagelHandler):
     def __init__(self, chn: BaseChannel, service):
         super().__init__(chn, service)
         # Our message handlers
-        self.handlers.update({(MsgType.REQUEST, EchoRequest.ECHO): self.on_echo,
-                              (MsgType.REQUEST, EchoRequest.ECHO_ROMAN): self.on_echo_roman,
-                              (MsgType.REQUEST, EchoRequest.ECHO_MORE): self.on_echo_more,
-                              (MsgType.REQUEST, EchoRequest.ECHO_STATE): self.on_echo_state,
-                              (MsgType.REQUEST, EchoRequest.ECHO_SYNC): self.on_echo_sync,
-                              (MsgType.REQUEST, EchoRequest.ECHO_DATA_MORE):
+        self.handlers.update({(MsgType.REQUEST, bb2h(1, EchoRequest.ECHO)): self.on_echo,
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_ROMAN)):
+                              self.on_echo_roman,
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_MORE)):
+                              self.on_echo_more,
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_STATE)):
+                              self.on_echo_state,
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_SYNC)):
+                              self.on_echo_sync,
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_DATA_MORE)):
                               self.on_echo_data_more,
-                              (MsgType.REQUEST, EchoRequest.ECHO_DATA_SYNC):
+                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_DATA_SYNC)):
                               self.on_echo_data_sync,
                              })
         # Optional ROMAN client
         self.roman_cli: RomanClient = None
     def on_invalid_message(self, session: Session, exc: InvalidMessageError):
         "Invalid Message event."
+        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
         raise ServiceError("Invalid message") from exc
     def on_invalid_greeting(self, exc: InvalidMessageError):
         "Invalid Greeting event."
+        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
         raise ServiceError("Invalid Greeting") from exc
     def on_dispatch_error(self, session: Session, exc: Exception):
         "Exception unhandled by `dispatch()`."
+        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
         raise ServiceError("Unhandled exception") from exc
     def on_hello(self, session: Session, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
+        log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)
         super().on_hello(session, msg)
         welcome = self.protocol.create_welcome_reply(msg)
-        welcome.peer.CopyFrom(self.impl.desc)
+        welcome.peer.CopyFrom(self.impl.welcome_df)
         self.send(welcome, session)
     def on_cancel(self, session: Session, msg: CancelMessage):
         """Handle CANCEL message.
 
 TODO: Properly handle CANCEL request. Right now we ignore it and do nothing.
 """
+        log.debug("%s.on_cancel(%s)", self.__class__.__name__, session.routing_id)
     def on_ack_reply(self, session: Session, msg: ReplyMessage):
         """REPLY message handler."""
         # If the message is ACK-REPLY to ECHO_SYNC request, we will start sending DATA to
         # the client.
-        if msg.request_code == EchoRequest.ECHO_SYNC:
+        log.debug("%s.on_ack_reply(%s)", self.__class__.__name__, session.routing_id)
+        if msg.request_code == bb2h(1, EchoRequest.ECHO_SYNC):
             req_msg = session.get_request(msg.token)
             msg_data = self.protocol.create_data_for(req_msg)
             msg_data.data.append(req_msg.data.pop(0))
@@ -125,9 +141,10 @@ There are three cases when this handler is called:
 
 All messages must have a valid handle in `type_data`.
 """
+        log.debug("%s.on_data(%s)", self.__class__.__name__, session.routing_id)
         if session.is_handle_valid(msg.type_data):
             req_msg = session.get_request(handle=msg.type_data)
-            if req_msg.request_code == EchoRequest.ECHO_SYNC:
+            if req_msg.request_code == bb2h(1, EchoRequest.ECHO_SYNC):
                 if msg.has_ack_reply():
                     msg_data = self.protocol.create_data_for(req_msg)
                     msg_data.type_data = msg.type_data
@@ -143,7 +160,7 @@ All messages must have a valid handle in `type_data`.
                     errd.code = ErrorCode.PROTOCOL_VIOLATION
                     errd.description = "Expected DATA with ACK_REPLY"
                     self.send(err, session)
-            elif req_msg.request_code == EchoRequest.ECHO_DATA_MORE:
+            elif req_msg.request_code == bb2h(1, EchoRequest.ECHO_DATA_MORE):
                 if len(req_msg.data) == 3:
                     # too many data messages
                     err = self.protocol.create_error_for(req_msg, ErrorCode.BAD_REQUEST)
@@ -166,7 +183,7 @@ All messages must have a valid handle in `type_data`.
                         self.send(msg_data, session)
                         msg_data.data.clear()
                     session.request_done(req_msg)
-            elif req_msg.request_code == EchoRequest.ECHO_DATA_SYNC:
+            elif req_msg.request_code == bb2h(1, EchoRequest.ECHO_DATA_SYNC):
                 req_msg.data.append(msg)
                 if msg.has_ack_req():
                     if len(req_msg.data) == req_msg.expect:
@@ -210,6 +227,7 @@ All messages must have a valid handle in `type_data`.
             self.send(err, session)
     def on_echo(self, session: Session, msg: RequestMessage):
         "ECHO request handler."
+        log.debug("%s.on_echo(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         reply = self.protocol.create_reply_for(msg)
         reply.data.extend(list(msg.data)) # copy data
@@ -217,6 +235,7 @@ All messages must have a valid handle in `type_data`.
         session.request_done(msg)
     def on_echo_roman(self, session: Session, msg: RequestMessage):
         "ECHO_ROMAN request handler."
+        log.debug("%s.on_echo_roman(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         reply = self.protocol.create_reply_for(msg)
         #
@@ -238,6 +257,7 @@ All messages must have a valid handle in `type_data`.
         session.request_done(msg)
     def on_echo_more(self, session: Session, msg: RequestMessage):
         "ECHO_MORE request handler."
+        log.debug("%s.on_echo_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         reply = self.protocol.create_reply_for(msg)
         self.send(reply, session)
@@ -253,6 +273,7 @@ All messages must have a valid handle in `type_data`.
         session.request_done(msg.token)
     def on_echo_state(self, session: Session, msg: RequestMessage):
         "ECHO_STATE request handler."
+        log.debug("%s.on_echo_state(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         reply = self.protocol.create_reply_for(msg)
         self.send(reply, session)
@@ -266,12 +287,14 @@ All messages must have a valid handle in `type_data`.
         session.request_done(msg.token)
     def on_echo_sync(self, session: Session, msg: RequestMessage):
         "Handle ECHO_SYNC message."
+        log.debug("%s.on_echo_sync(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         reply = self.protocol.create_reply_for(msg)
         reply.set_flag(MsgFlag.ACK_REQ)
         self.send(reply, session)
     def on_echo_data_more(self, session: Session, msg: RequestMessage):
         "Handle ECHO_DATA_MORE message."
+        log.debug("%s.on_echo_data_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         msg.data.clear() # Clear data, we will accumulate sent DATA messages there
         reply = self.protocol.create_reply_for(msg)
@@ -280,6 +303,7 @@ All messages must have a valid handle in `type_data`.
         self.send(reply, session)
     def on_echo_data_sync(self, session: Session, msg: RequestMessage):
         "Handle ECHO_DATA_SYNC message."
+        log.debug("%s.on_echo_data_sync(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
         # Data frame must contain number of DATA messages that would follow
         i, = unpack('H', msg.data[0])
@@ -301,26 +325,25 @@ All messages must have a valid handle in `type_data`.
 
 class EchoServiceImpl(SimpleServiceImpl):
     """Implementation of ECHO service."""
-    # It's not an official service, so we can use any UUID constants
+    def __init__(self):
+        super().__init__()
+        self.agent = SERVICE_AGENT
+        self.api = SERVICE_API
+        self.roman_chn = None
     def initialize(self, svc: BaseService):
         super().initialize(svc)
         # Message handler for ECHO service
         self.msg_handler = EchoMessageHandler(self.svc_chn, self)
         #
-        self.desc.uid = uuid1().bytes
-        self.desc.host = "localhost"
-        self.desc.identity.classification = "service-example/echo"
         # Channel to ROMAN service
-        with_roman = roman_api.SERVICE_UID in self.remotes
-        if with_roman:
+        roman_address = svc.get_provider_address(roman_api.ROMAN_INTERFACE_UID.bytes)
+        if roman_address is not None:
             self.roman_chn = DealerChannel(uuid1().bytes, False)
             self.mngr.add(self.roman_chn)
             self.roman_chn.socket.connect_timeout = 1
-            roman_cli = RomanClient(self.roman_chn, UUID(bytes=self.instance_id),
-                                    self.desc.host, self.SERVICE_UID,
-                                    self.SERVICE_NAME, self.SERVICE_VERSION)
+            roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
             try:
-                roman_cli.open(self.remotes[roman_api.SERVICE_UID])
+                roman_cli.open(roman_address)
                 self.msg_handler.roman_cli = roman_cli
             except:
                 # we can live without ROMAN service, just clean up the ROMAN channel

@@ -41,9 +41,10 @@ from struct import pack
 from uuid import UUID, uuid1
 import zmq
 import saturnin.sdk
-from saturnin.sdk.types import PeerDescriptor, AgentDescriptor, TSession
+from saturnin.sdk.types import PeerDescriptor, AgentDescriptor, ClientError, \
+     TSession, TClient, TChannel
 from saturnin.sdk.base import ChannelManager, DealerChannel
-from saturnin.sdk.fbsp import Protocol, MsgType, Message
+from saturnin.sdk.fbsp import Protocol, MsgType, Message, WelcomeMessage
 
 # Functions
 
@@ -69,7 +70,7 @@ def print_session(session: TSession):
     print(f'Vendor ID:      {session.vendor}')
     print(f'Platform ID:    {session.platform}')
     print(f'Platform ver.:  {session.platform_version}')
-    print(f'Calssification: {session.classification}')
+    print(f'Classification: {session.classification}')
 
 # Classes
 
@@ -77,13 +78,17 @@ class BaseTestRunner:
     """Base Test Runner for Firebird Butler Services and Clients.
 
 Attributes:
-    :ctx:      ZMQ Context instance.
-    :protocol: FBSP Protocol instance.
-    :peer:     PeerDescriptor
-    :agent:    AgentDescriptor
+    :interface_uid: Interface UID (must be assigned by descendant class)
+    :interface_id:  Number assigned to interface
+    :ctx:           ZMQ Context instance.
+    :protocol:      FBSP Protocol instance.
+    :peer:          PeerDescriptor
+    :agent:         AgentDescriptor
 """
     def __init__(self, context: zmq.Context = None):
-        self.ctx = context if context else zmq.Context.instance()
+        self.interface_id: int = None
+        self.interface_uid: bytes = None
+        self.ctx: zmq.Context = context if context else zmq.Context.instance()
         self._cnt = 0
         self.protocol: Protocol = Protocol.instance()
         self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), 'localhost')
@@ -120,8 +125,18 @@ Attributes:
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
-    def _run(self, test_names: List, *args):
-        "Run test methods."
+        for api in msg.peer.api:
+            if api.uid == self.interface_uid:
+                interface_id = api.number
+        if interface_id is None:
+            raise ClientError("Service does not support required interface")
+        self.interface_id = interface_id
+        self.process_welcome(msg)
+    def _client_handshake(self, client: TClient):
+        "Client test of ROMAN handshake."
+        print_session(client.get_session())
+    def _run(self, test_names: List[str], *args):
+        "Run test method."
         start = monotonic()
         for name in test_names:
             try:
@@ -134,6 +149,11 @@ Attributes:
         print_title("End")
         elapsed = monotonic() - start
         print(f"Ran {len(test_names)} tests in {elapsed} seconds")
+    def process_welcome(self, msg: WelcomeMessage):
+        """Called by raw handshake to allow processing of WELCOME message by descendants."""
+    def create_client(self, channel: TChannel) -> TClient:
+        """Called to create Service client instance for testing."""
+        raise NotImplementedError()
     def run_raw_tests(self, endpoint: str, test_names: List[str] = None):
         "Run service tests using raw ZMQ messages."
         test_list = test_names if test_names else [name for name in dir(self)
@@ -143,17 +163,22 @@ Attributes:
         socket.identity = b'runner'
         socket.connect(endpoint)
         self._run(test_list, socket)
+        msg = self.protocol.create_message_for(MsgType.CLOSE, self.get_token())
+        socket.send_multipart(msg.as_zmsg())
         socket.close()
     def run_client_tests(self, endpoint: str, test_names: List[str] = None):
         "Run service tests using service client."
         test_list = test_names if test_names else [name for name in dir(self)
                                                    if name.startswith('client_')]
-        if hasattr(self, '_client_handshake'):
-            test_list.insert(0, '_client_handshake')
+        test_list.insert(0, '_client_handshake')
         mngr = ChannelManager(self.ctx)
         try:
             chn = DealerChannel(b'runner', False)
             mngr.add(chn)
-            self._run(test_list, chn, endpoint)
+            with self.create_client(chn) as client:
+                client.open(endpoint)
+                self._run(test_list, client)
+            mngr.remove(chn)
+            chn.close()
         finally:
             mngr.shutdown()

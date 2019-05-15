@@ -34,8 +34,9 @@
 """Test runner for ROMAN service (classic version)
 """
 
-from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg, print_session
-from saturnin.service.roman.api import RomanRequest
+from saturnin.sdk.types import TClient, TChannel
+from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg
+from saturnin.service.roman.api import RomanRequest, ROMAN_INTERFACE_UID
 from saturnin.service.roman.client import RomanClient
 
 class TestRunner(BaseTestRunner):
@@ -43,9 +44,12 @@ class TestRunner(BaseTestRunner):
 """
     def __init__(self, context):
         super().__init__(context)
+        self.interface_uid = ROMAN_INTERFACE_UID.bytes
         self.test_data = [b"Back to the Future (1985) takes place in year 1985",
                           b"Back to the Future 2 (1989) takes place in year 2015",
                           b"Back to the Future 3 (1990) takes place in year 1885"]
+    def create_client(self, channel: TChannel) -> TClient:
+        return RomanClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
         "Execute Client API call."
         print('Sent:')
@@ -58,7 +62,8 @@ class TestRunner(BaseTestRunner):
     def raw_roman(self, socket: zmq.Socket):
         "Raw test of ROMAN request."
         print("Sending ROMAN request:")
-        msg = self.protocol.create_request_for(1, RomanRequest.ROMAN, self.get_token())
+        msg = self.protocol.create_request_for(self.interface_id, RomanRequest.ROMAN,
+                                               self.get_token())
         msg.data.extend(self.test_data)
         print_msg(msg)
         socket.send_multipart(msg.as_zmsg())
@@ -66,13 +71,6 @@ class TestRunner(BaseTestRunner):
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
-    def _client_handshake(self, channel, endpoint: str):
-        "Client test of ROMAN handshake."
-        with RomanClient(channel, self.peer, self.agent) as cli:
-            cli.open(endpoint)
-            print_session(cli.get_session())
-    def client_roman(self, channel, endpoint: str):
+    def client_roman(self, client: TClient):
         "Client test of roman() API call."
-        with RomanClient(channel, self.peer, self.agent) as cli:
-            cli.open(endpoint)
-            self.run_request(cli.roman)
+        self.run_request(client.roman)

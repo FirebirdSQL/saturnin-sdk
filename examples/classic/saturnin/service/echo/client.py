@@ -36,23 +36,22 @@
 ECHO service sends data frames back to the sender.
 """
 
-from uuid import UUID
-from typing import List
+from typing import List, Dict
 from struct import pack, unpack
-from saturnin.service.echo.api import EchoRequest, Protocol
-from saturnin.sdk.base import BaseChannel, ServiceError
-from saturnin.sdk.fbsp import Session, ClientMessageHandler, MsgType, MsgFlag, State, \
-     DataMessage, StateMessage, ReplyMessage, ErrorMessage, enum_name, exception_for
+from saturnin.sdk.types import InterfaceDescriptor, ServiceError, enum_name
+from saturnin.service.echo.api import EchoRequest, SERVICE_INTERFACE
+from saturnin.sdk.fbsp import Session, MsgType, MsgFlag, State, bb2h, ReplyMessage, \
+     ErrorMessage, DataMessage, StateMessage, exception_for
+from saturnin.sdk.client import ServiceClient
 
-class EchoClient(ClientMessageHandler):
+class EchoClient(ServiceClient):
     """Message handler for ECHO client."""
-    def __init__(self, chn: BaseChannel, instance_uid: UUID, host: str, agent_uid: UUID,
-                 agent_name: str, agent_version: str):
-        super().__init__(chn, instance_uid, host, agent_uid, agent_name, agent_version)
-        self.protocol = Protocol()
-        self.handlers.update({(MsgType.REPLY, EchoRequest.ECHO): self.on_simple_echo,
-                              (MsgType.REPLY, EchoRequest.ECHO_ROMAN): self.on_simple_echo,
-                             })
+    def get_interface(self) -> InterfaceDescriptor:
+        return SERVICE_INTERFACE
+    def get_handlers(self, api_number: int) -> Dict:
+        return {(MsgType.REPLY, bb2h(api_number, EchoRequest.ECHO)): self.on_simple_echo,
+                (MsgType.REPLY, bb2h(api_number, EchoRequest.ECHO_ROMAN)): self.on_simple_echo,
+               }
     def on_error(self, session: Session, msg: ErrorMessage):
         "Handle ERROR message received from Service."
         self.last_token_seen = msg.token
@@ -63,18 +62,20 @@ class EchoClient(ClientMessageHandler):
         "Handle Service REPLY message."
         req = session.get_request(msg.token)
         req.response = []
-        if req.request_code == EchoRequest.ECHO_SYNC:
+        if req.request_code == bb2h(self.interface_id, EchoRequest.ECHO_SYNC):
             # Note that we'll not set the `last_token_seen` to keep the loop going.
             if msg.has_ack_req():
                 self.send(self.protocol.create_ack_reply(msg))
-        elif req.request_code in (EchoRequest.ECHO_DATA_MORE, EchoRequest.ECHO_DATA_SYNC):
+        elif req.request_code in (bb2h(self.interface_id, EchoRequest.ECHO_DATA_MORE),
+                                  bb2h(self.interface_id, EchoRequest.ECHO_DATA_SYNC)):
             # Service accepted our request, and returned a handle we have to use in our
             # DATA messages (type_data), so we are done here and we'll return the handle
             # to the caller that will send the data to the service. However, we'll keep
             # the request.
             req.response, = unpack('H', msg.data[0])
             self.last_token_seen = msg.token
-        elif req.request_code in (EchoRequest.ECHO_MORE, EchoRequest.ECHO_STATE):
+        elif req.request_code in (bb2h(self.interface_id, EchoRequest.ECHO_MORE),
+                                  bb2h(self.interface_id, EchoRequest.ECHO_STATE)):
             # REPLY to these requests is just information that service accepted it. However,
             # we must handle it somehow as it's part of ECHO protocol. Because there are
             # subsequent messages and we want to handle them in single call to
@@ -90,15 +91,16 @@ class EchoClient(ClientMessageHandler):
         req = session.get_request(msg.token)
         # DATA messages could be related to different requests, so we need the request to
         # decide how to handle them.
-        if req.request_code in (EchoRequest.ECHO_MORE, EchoRequest.ECHO_DATA_MORE):
+        if req.request_code in (bb2h(self.interface_id, EchoRequest.ECHO_MORE),
+                                bb2h(self.interface_id, EchoRequest.ECHO_DATA_MORE)):
             req.response.extend(msg.data)
             if not msg.has_more():
                 # It was last one, so stop the loop and wrap up the request.
                 self.last_token_seen = msg.token
                 session.request_done(req)
-        elif req.request_code == EchoRequest.ECHO_STATE:
+        elif req.request_code == bb2h(self.interface_id, EchoRequest.ECHO_STATE):
             req.response.extend(msg.data)
-        elif req.request_code == EchoRequest.ECHO_SYNC:
+        elif req.request_code == bb2h(self.interface_id, EchoRequest.ECHO_SYNC):
             # The SYNC protocol uses Flag.ACK_REQ to signal that there is more to send.
             # But we should send ACK_REPLY only when we process current one and are ready
             # for another.
@@ -109,7 +111,7 @@ class EchoClient(ClientMessageHandler):
                 # It was last one, so stop the loop and wrap up the request.
                 self.last_token_seen = msg.token
                 session.request_done(req)
-        elif req.request_code == EchoRequest.ECHO_DATA_SYNC:
+        elif req.request_code == bb2h(self.interface_id, EchoRequest.ECHO_DATA_SYNC):
             # We should receive ACK_REPLY to send more data.
             if msg.has_ack_reply():
                 # Return from loop so caller can send another data
@@ -135,17 +137,6 @@ class EchoClient(ClientMessageHandler):
         req.response = msg.data
         session.request_done(req)
     # ECHO API for clients
-    def open(self, endpoint: str):
-        "Opens connection to ECHO service."
-        self.connect_peer(endpoint)
-        token = self.new_token()
-        hello = self.protocol.create_message_for(MsgType.HELLO, token)
-        hello.peer.CopyFrom(self.desc)
-        self.send(hello)
-        self.get_response(token)
-    def close(self):
-        "Close connection to ECHO service."
-        self.discard_session(self.get_session())
     def echo(self, *args, **kwargs) -> List:
         """Pass data through ECHO request.
 
@@ -161,7 +152,7 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO, token)
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO, token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)
@@ -183,7 +174,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_ROMAN, token)
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_ROMAN,
+                                               token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)
@@ -205,7 +197,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_MORE, token)
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_MORE,
+                                               token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)
@@ -228,7 +221,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_STATE, token)
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_STATE,
+                                               token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)
@@ -251,7 +245,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_SYNC, token)
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_SYNC,
+                                               token)
         session.note_request(msg)
         msg.data = list(args)
         self.send(msg)
@@ -273,7 +268,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_DATA_MORE, token)
+        msg = self.protocol.create_request_for(self.interface_id,
+                                               EchoRequest.ECHO_DATA_MORE, token)
         session.note_request(msg)
         self.send(msg)
         if not self.get_response(token, kwargs.get('timeout')):
@@ -311,7 +307,8 @@ Returns:
         session: Session = self.get_session()
         assert session
         token = self.new_token()
-        msg = self.protocol.create_request_for(EchoRequest.ECHO_DATA_SYNC, token)
+        msg = self.protocol.create_request_for(self.interface_id,
+                                               EchoRequest.ECHO_DATA_SYNC, token)
         # data frame must contain number of messages we'll send
         msg.data.append(pack('H', len(args)))
         session.note_request(msg)

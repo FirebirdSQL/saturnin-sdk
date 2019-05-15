@@ -33,6 +33,7 @@
 
 "Saturnin SDK Package"
 
+#import logging
 from uuid import uuid5, NAMESPACE_OID
 
 # firebird.butler.platform.saturnin-sdk

@@ -50,6 +50,7 @@ TChannel = TypeVar('TChannel', bound='BaseChannel')
 TMessageHandler = TypeVar('TMessageHandler', bound='BaseMessageHandler')
 TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
+TClient = TypeVar('TClient', bound='ServiceClient')
 Token = bytearray
 
 # Enums

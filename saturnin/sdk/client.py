@@ -35,12 +35,17 @@
 """Saturnin SDK - Butler Service Clients
 """
 
+import logging
 from typing import Dict
 from . import fbsp_pb2 as pb
 #from .base import BaseService, BaseServiceImpl
 from .types import TChannel, TSession, ClientError, AgentDescriptor, PeerDescriptor, \
      InterfaceDescriptor
 from .fbsp import MsgType, WelcomeMessage, ClientMessageHandler, validate_hello_pb
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Classes
 
@@ -55,6 +60,7 @@ Abstract methods:
     :get_interface: Returns descriptor for service interface used by client.
 """
     def __init__(self, chn: TChannel, peer: PeerDescriptor, agent: AgentDescriptor):
+        log.debug("%s.__init__", self.__class__.__name__)
         super().__init__(chn)
         self.hello_df: pb.HelloDataframe = pb.HelloDataframe()
         self.peer: PeerDescriptor = peer
@@ -66,6 +72,7 @@ Abstract methods:
 
 Save WELCOME message into session.greeting, or raise `ServiceError` for unexpected WELCOME.
 """
+        log.debug("%s.on_welcome", self.__class__.__name__)
         super().on_welcome(session, msg)
         intf_uid = self.get_interface().uid.bytes
         interface_id = None
@@ -96,6 +103,7 @@ Arguments:
 Returns:
     True if service was sucessfuly connected in specified time limit.
 """
+        log.debug("%s.open", self.__class__.__name__)
         self.connect_peer(endpoint)
         token = self.new_token()
         hello = self.protocol.create_message_for(MsgType.HELLO, token)

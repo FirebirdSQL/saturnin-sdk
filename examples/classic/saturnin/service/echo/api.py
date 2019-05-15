@@ -58,6 +58,8 @@ from saturnin.service.roman import api as roman_api
 SERVICE_UID: UUID = UUID('7e59724e-46a4-11e9-8f39-5404a6a1fd6e')
 SERVICE_VERSION: str = '0.3'
 
+ECHO_INTERFACE_UID = UUID('24580be2-4434-11e9-b528-5404a6a1fd6e')
+
 #  Request Codes
 
 class EchoRequest(IntEnum):
@@ -79,8 +81,8 @@ SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
                                 VENDOR_UID,
                                 "example/echo"
                                )
-SERVICE_INTERFACE = InterfaceDescriptor(UUID('24580be2-4434-11e9-b528-5404a6a1fd6e'),
-                                        "Echo service API", 1, EchoRequest)
+SERVICE_INTERFACE = InterfaceDescriptor(ECHO_INTERFACE_UID, "Echo service API", 1,
+                                        EchoRequest)
 SERVICE_API = [SERVICE_INTERFACE]
 
 SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT,

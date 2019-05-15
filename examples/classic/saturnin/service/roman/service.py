@@ -40,15 +40,19 @@ Supported requests:
     :ROMAN: REPLY with altered REQUEST data frames.
 """
 
-from uuid import UUID
+import logging
 from itertools import groupby
 from saturnin.sdk.types import ServiceError, InvalidMessageError, MsgType, ErrorCode, \
      TSession
 from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.sdk.base import BaseChannel, BaseService
 from saturnin.sdk.classic import SimpleServiceImpl
-from saturnin.sdk.fbsp import Session, ServiceMessagelHandler, HelloMessage, \
+from saturnin.sdk.fbsp import ServiceMessagelHandler, HelloMessage, \
      CancelMessage, RequestMessage, bb2h
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Functions
 
@@ -87,15 +91,21 @@ class RomanMessageHandler(ServiceMessagelHandler):
                              })
     def on_invalid_message(self, session: TSession, exc: InvalidMessageError):
         "Invalid Message event."
+        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
         raise ServiceError("Invalid message") from exc
     def on_invalid_greeting(self, exc: InvalidMessageError):
         "Invalid Greeting event."
+        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
         raise ServiceError("Invalid Greeting") from exc
     def on_dispatch_error(self, session: TSession, exc: Exception):
         "Exception unhandled by `dispatch()`."
+        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
         raise ServiceError("Unhandled exception") from exc
     def on_hello(self, session: TSession, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
+        log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)
         super().on_hello(session, msg)
         welcome = self.protocol.create_welcome_reply(msg)
         welcome.peer.CopyFrom(self.impl.welcome_df)
@@ -106,12 +116,14 @@ class RomanMessageHandler(ServiceMessagelHandler):
         # messages. However, we have to handle it although we'll do nothing.
         # In such cases we could either override the on_cancel() method like now,
         # or assign self.do_nothing handler to MsgType.CANCEL in __init__().
+        log.debug("%s.on_cancel(%s)", self.__class__.__name__, session.routing_id)
     def on_roman(self, session: TSession, msg: RequestMessage):
         """Handle REQUEST/ROMAN message.
 
 Data frames must contain strings as UTF-8 encoded bytes. We'll send them back in REPLY with
 Arabic numbers replaced with Roman ones.
 """
+        log.debug("%s.on_roman(%s)", self.__class__.__name__, session.routing_id)
         reply = self.protocol.create_reply_for(msg)
         try:
             for data in msg.data:

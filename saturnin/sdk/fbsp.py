@@ -37,6 +37,7 @@
 See https://firebird-butler.readthedocs.io/en/latest/rfc/4/FBSP.html
 """
 
+import logging
 from typing import List, Dict, Sequence, Optional, Union
 from uuid import UUID, uuid5, NAMESPACE_OID
 from struct import pack, unpack
@@ -75,6 +76,10 @@ class State(IntEnum):
     CREATED = pb.CREATED
     BLOCKED = pb.BLOCKED
     STOPPED = pb.STOPPED
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Protocol Buffer (fbsp.proto) validators
 
@@ -861,6 +866,7 @@ Abstract methods:
         """Message handler that does nothing. Useful for cases when message must be handled
 but no action is required, like handling CANCEL messages in simple protocols.
 """
+        log.debug("%s.do_nothing", self.__class__.__name__)
     def on_unknown(self, session: TSession, msg: Message) -> None:
         """Default message handler. Called by `dispatch` when no appropriate message handler
 is found in :attr:`handlers` dictionary.
@@ -868,6 +874,7 @@ is found in :attr:`handlers` dictionary.
         raise NotImplementedError
     def on_noop(self, session: TSession, msg: NoopMessage) -> None:
         "Handle NOOP message. Sends ACK_REPLY back if required, otherwise it will do nothing."
+        log.debug("%s.on_noop", self.__class__.__name__)
         if msg.has_ack_req():
             self.send(self.protocol.create_ack_reply(msg), session)
     def on_data(self, session: TSession, msg: DataMessage) -> None:
@@ -887,6 +894,7 @@ Arguments:
     :session: Session attached to peer.
     :msg:     FBSP message received from client.
 """
+        log.debug("%s.dispatch", self.__class__.__name__)
         handler = self.handlers.get((msg.message_type, msg.type_data))
         if not handler:
             handler = self.handlers.get(msg.message_type)
@@ -931,6 +939,7 @@ Abstract methods:
                              })
     def close(self):
         "Close all connections to Clients."
+        log.debug("%s.close", self.__class__.__name__)
         while self.sessions:
             _, session = self.sessions.popitem()
             self.send(self.protocol.create_message_for(MsgType.CLOSE, session.token),
@@ -939,16 +948,19 @@ Abstract methods:
                 self.chn.disconnect(session.endpoint)
     def on_ack_reply(self, session: TSession, msg: ReplyMessage) -> None:
         "Called to handle REPLY/ACK_REPLY message."
+        log.debug("%s.on_ack_reply", self.__class__.__name__)
     def on_unknown(self, session: TSession, msg: Message) -> None:
         """Default message handler for unrecognized messages.
 Sends ERROR/INVALID_MESSAGE back to the client.
 """
+        log.debug("%s.on_unknown", self.__class__.__name__)
         errmsg = self.protocol.create_error_for(session.greeting, ErrorCode.INVALID_MESSAGE)
         err = errmsg.add_error()
         err.description = "Invalid message, type: %d" % msg.message_type
         self.send(errmsg, session)
     def on_data(self, session: TSession, msg: DataMessage) -> None:
         "Handle DATA message."
+        log.debug("%s.on_data", self.__class__.__name__)
         err_msg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
         err = err_msg.add_error()
         err.description = "Data message not allowed"
@@ -959,6 +971,7 @@ Sends ERROR/INVALID_MESSAGE back to the client.
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
 the session.
 """
+        log.debug("%s.on_close", self.__class__.__name__)
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
         self.discard_session(session)
@@ -968,6 +981,7 @@ the session.
 This method MUST be overridden in child classes to send WELCOME message back to the client.
 Overriding method must call `super().on_hello(session, msg)`.
 """
+        log.debug("%s.on_hello", self.__class__.__name__)
         session.greeting = msg
     def on_request(self, session: TSession, msg: RequestMessage) -> None:
         """Handle Client REQUEST message.
@@ -975,6 +989,7 @@ Overriding method must call `super().on_hello(session, msg)`.
 This is implementation that provides a fall-back handler for unsupported request codes (not
 defined in `handler` table) that sends back an ERROR/BAD_REQUEST message.
 """
+        log.debug("%s.on_request", self.__class__.__name__)
         self.send(self.protocol.create_error_for(msg, ErrorCode.BAD_REQUEST), session)
     def on_cancel(self, session: TSession, msg: CancelMessage) -> None:
         "Handle CANCEL message."
@@ -984,6 +999,7 @@ defined in `handler` table) that sends back an ERROR/BAD_REQUEST message.
 
 Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
 """
+        log.debug("%s.on_reply", self.__class__.__name__)
         if msg.has_ack_reply():
             self.on_ack_reply(session, msg)
         else:
@@ -1048,6 +1064,7 @@ Abstract methods:
         return pack('Q', self._tcnt)
     def close(self):
         "Close connection to Service."
+        log.debug("%s.close", self.__class__.__name__)
         session = self.get_session()
         try:
             self.send(self.protocol.create_message_for(MsgType.CLOSE,
@@ -1076,6 +1093,7 @@ Important:
 Returns:
     True if response arrived in time, False on timeout.
 """
+        log.debug("%s.get_response", self.__class__.__name__)
         assert not self.chn.routed, "Routed channels are not supported"
         stop = False
         session = self.get_session()
@@ -1101,6 +1119,7 @@ Returns:
 
     def on_unknown(self, session: TSession, msg: Message):
         "Default message handler for unrecognized messages. Raises `ServiceError`."
+        log.debug("%s.on_unknown", self.__class__.__name__)
         raise ServiceError("Unhandled %s message from service" % enum_name(msg.message_type))
     def on_close(self, session: TSession, msg: CloseMessage) -> None:
         """Handle CLOSE message.
@@ -1108,6 +1127,7 @@ Returns:
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
 the session and raises `ServiceError`.
 """
+        log.debug("%s.on_close", self.__class__.__name__)
         self.last_token_seen = msg.token
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
@@ -1118,6 +1138,7 @@ the session and raises `ServiceError`.
 
 Save WELCOME message into session.greeting, or raise `ServiceError` for unexpected WELCOME.
 """
+        log.debug("%s.on_welcome", self.__class__.__name__)
         self.last_token_seen = msg.token
         if not session.greeting:
             session.greeting = msg

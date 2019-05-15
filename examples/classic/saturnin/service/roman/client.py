@@ -35,7 +35,6 @@
 
 ROMAN service returns data frames with arabic numbers replaced with Roman numbers.
 """
-#from uuid import UUID
 from typing import List, Dict
 from saturnin.service.roman.api import RomanRequest, SERVICE_INTERFACE
 from saturnin.sdk.types import InterfaceDescriptor

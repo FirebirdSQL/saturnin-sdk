@@ -36,10 +36,11 @@
 
 """
 
+import logging
 from typing import Dict, List, Optional
 from uuid import UUID, uuid1
 from os import getpid
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Action
 from threading import Thread, Event
 from time import sleep
 from pkg_resources import iter_entry_points
@@ -65,6 +66,12 @@ def get_best_endpoint(endpoints) -> Optional[str]:
     tcp = [x for x in endpoints if protocol_name(x) == 'tcp']
     return tcp[0]
 
+
+class UpperAction(Action):
+    "Converts argument to uppercase."
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values.upper())
+
 class Service(Thread):
     "Classic Simple Butler Service executed in its own thread."
     def __init__(self, name: str, endpoints: List[str], svc_descriptor: ServiceDescriptor):
@@ -82,6 +89,7 @@ class Service(Thread):
         svc_impl.endpoints = self.endpoints
         svc_impl.peer = PeerDescriptor(uuid1(), getpid(), 'localhost')
         svc = self.svc_class(svc_impl, self.stop_event)
+        svc.remotes = self.remotes.copy()
         svc.start()
 
 class Runner:
@@ -102,7 +110,7 @@ class Runner:
         """Returns descriptor of service that provides specified interface or None."""
         for svc_desc in self.service_registry.values():
             for intf in svc_desc.api:
-                if intf == interface_uid:
+                if intf.uid == interface_uid:
                     return svc_desc
         return None
     def load_remote_services(self, remote_services: List):
@@ -152,23 +160,30 @@ class Runner:
         for service in self.services.values():
             for dependency_type, interface_uid in service.svc_descriptor.dependencies:
                 provider_desciptor = self.get_interface_provider(interface_uid)
-                if provider_desciptor.agent.uid in self.services:
-                    remote_service = self.services[provider_desciptor.agent.uid]
-                    service.remotes[interface_uid] = get_best_endpoint(remote_service.endpoints)
-                elif provider_desciptor.agent.name in self.remotes:
-                    remote_endpoints = self.remotes[provider_desciptor.agent.name]
-                    service.remotes[interface_uid] = get_best_endpoint(remote_endpoints)
-                if (provider_desciptor is None and
-                    dependency_type == DependencyType.REQUIRED):
+                if provider_desciptor is not None:
+                    if provider_desciptor.agent.uid in self.services:
+                        remote_service = self.services[provider_desciptor.agent.uid]
+                        service.remotes[interface_uid.bytes] = \
+                            get_best_endpoint(remote_service.endpoints)
+                    elif provider_desciptor.agent.name in self.remotes:
+                        remote_endpoints = self.remotes[provider_desciptor.agent.name]
+                        service.remotes[interface_uid.bytes] = get_best_endpoint(remote_endpoints)
+                if (provider_desciptor is None and dependency_type == DependencyType.REQUIRED):
                     raise Exception(f"Service '{service.name}' requires interface " \
-                                    f"{interface_uid} that is not provided by any registered service.")
+                                    f"{interface_uid} that is not provided by any service.")
     def load_test(self, test_on: str):
         "Prepare tests."
+        service_descriptor = None
         test_service = self.get_service_by_name(test_on)
-        if not test_service:
+        if test_service:
+            service_descriptor = test_service.svc_descriptor
+        else:
+            if test_on in self.remotes:
+                service_descriptor = self.name_map[test_on]
+        if not service_descriptor:
             raise Exception(f"Test service '{test_on}' not specified by -s or -r option")
         try:
-            test_class = load(test_service.svc_descriptor.tests)
+            test_class = load(service_descriptor.tests)
         except Exception as exc:
             raise Exception(f"Can't load test runner for service '{test_on}'") from exc
         self.test = test_class(self.ctx)
@@ -196,15 +211,22 @@ class Runner:
         test_type = 'raw' if raw else 'client'
         print(f"Running {test_type} tests on '{service_name}' service")
         test_service = self.get_service_by_name(service_name)
-        if raw:
-            self.test.run_raw_tests(get_best_endpoint(test_service.endpoints))
+        if test_service is not None:
+            endpoint = get_best_endpoint(test_service.endpoints)
         else:
-            self.test.run_client_tests(get_best_endpoint(test_service.endpoints))
+            endpoint = get_best_endpoint(self.remotes[service_name])
+        if raw:
+            self.test.run_raw_tests(endpoint)
+        else:
+            self.test.run_client_tests(endpoint)
 
 
 
 def main():
     "Main function"
+
+    logging.basicConfig(format='%(levelname)s:%(threadName)s:%(name)s:%(message)s')
+    #logging.basicConfig()
 
     runner = Runner()
 
@@ -218,11 +240,17 @@ def main():
                         help="Name of service to be tested.")
     parser.add_argument('--raw', action='store_true',
                         help="Execute raw ZMQ test.")
-    parser.set_defaults(raw=False)
+    parser.add_argument('-l', '--log-level', action=UpperAction,
+                        choices=[x.lower() for x in logging._nameToLevel
+                                 if isinstance(x, str)],
+                        help="Logging level")
+    parser.set_defaults(raw=False, log_level='ERROR')
 
     try:
         args = parser.parse_args()
         print(f"Saturnin Service/Test runner (classic version) v{__VERSION__}\n")
+        logger = logging.getLogger()
+        logger.setLevel(args.log_level)
         if args.remote:
             runner.load_remote_services(args.remote)
         if args.service:
@@ -243,6 +271,7 @@ def main():
             runner.shutdown()
     except Exception as exc:
         print(exc)
+    logging.shutdown()
     print('Done.')
 
 if __name__ == '__main__':

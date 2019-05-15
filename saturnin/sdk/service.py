@@ -35,11 +35,16 @@
 """Saturnin SDK - Butler Services
 """
 
+import logging
 from typing import Sequence
 from . import fbsp_pb2 as pb
 from .base import BaseService, BaseServiceImpl
 from .types import AgentDescriptor, PeerDescriptor, InterfaceDescriptor
 from .fbsp import validate_welcome_pb
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Classes
 
@@ -55,13 +60,15 @@ Configuration options (retrieved via `get()`):
     :api:    List[InterfaceDescriptor]
 """
     def __init__(self):
+        log.debug("%s.__init__", self.__class__.__name__)
         super().__init__()
         self.welcome_df: pb.WelcomeDataframe = pb.WelcomeDataframe()
         self.msg_handler = None
-        self.agent = None
-        self.peer = None
-        self.api = []
+        self.agent: AgentDescriptor = None
+        self.peer: PeerDescriptor = None
+        self.api: Sequence[InterfaceDescriptor] = []
     def validate(self):
+        log.debug("%s.validate", self.__class__.__name__)
         super().validate()
         assert isinstance(self.get('agent'), AgentDescriptor)
         assert isinstance(self.get('peer'), PeerDescriptor)
@@ -69,9 +76,10 @@ Configuration options (retrieved via `get()`):
         for interface in self.get('api'):
             assert isinstance(interface, InterfaceDescriptor)
     def initialize(self, svc):
-        """Partial initialization of FBSP Welcome Data Frame. It does not fill in any
+        """Initialization of FBSP Welcome Data Frame. It does not fill in any
 supplement for peer or agent even if they are defined in descriptors.
 """
+        log.debug("%s.initialize", self.__class__.__name__)
         agent: AgentDescriptor = self.get('agent')
         peer: PeerDescriptor = self.get('peer')
         self.welcome_df.instance.uid = peer.uid.bytes
@@ -80,6 +88,7 @@ supplement for peer or agent even if they are defined in descriptors.
         self.welcome_df.service.uid = agent.uid.bytes
         self.welcome_df.service.name = agent.name
         self.welcome_df.service.version = agent.version
+        self.welcome_df.service.classification = agent.classification
         self.welcome_df.service.vendor.uid = agent.vendor_uid.bytes
         self.welcome_df.service.platform.uid = agent.platform_uid.bytes
         self.welcome_df.service.platform.version = agent.platform_version
@@ -96,5 +105,6 @@ supplement for peer or agent even if they are defined in descriptors.
 class Service(BaseService):
     """Base FBSP service."""
     def validate(self):
+        log.debug("%s.validate", self.__class__.__name__)
         super().validate()
         validate_welcome_pb(self.impl.welcome_df)
