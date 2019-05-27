@@ -34,8 +34,9 @@
 """Base module for testing FBSP Services and Clients.
 """
 
-from typing import List
+from typing import List, Sequence
 import os
+import socket
 from time import monotonic
 from struct import pack
 from uuid import UUID, uuid1
@@ -44,7 +45,7 @@ import saturnin.sdk
 from saturnin.sdk.types import PeerDescriptor, AgentDescriptor, ClientError, \
      TSession, TClient, TChannel
 from saturnin.sdk.base import ChannelManager, DealerChannel
-from saturnin.sdk.fbsp import Protocol, MsgType, Message, WelcomeMessage
+from saturnin.sdk.fbsp import Protocol, MsgType, Message, WelcomeMessage, uid2uuid
 
 # Functions
 
@@ -52,10 +53,13 @@ def print_title(title, size=80, char='='):
     "Prints centered title surrounded by char."
     print(f"  {title}  ".center(size, char))
 
-def print_msg(msg: Message, indent: int = 4):
+def print_msg(msg: Message, data_frames: str = None, indent: int = 4):
     "Pretty-print message."
     print('\n'.join(('%s%s' % (' ' * indent, line) for line
-                     in msg.get_printout().splitlines())))
+                     in msg.get_printout(with_data = data_frames is None).splitlines())))
+    if data_frames is not None:
+        print('\n'.join(('%s%s' % (' ' * indent, line) for line in
+                         uid2uuid(data_frames.splitlines()))))
     print('    ' + '~' * (80 - indent))
 
 def print_session(session: TSession):
@@ -91,10 +95,9 @@ Attributes:
         self.ctx: zmq.Context = context if context else zmq.Context.instance()
         self._cnt = 0
         self.protocol: Protocol = Protocol.instance()
-        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), 'localhost')
+        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), socket.getfqdn())
         self.agent: AgentDescriptor = AgentDescriptor(UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e'),
                                                       "Saturnin SDK test client",
-                                                      "Saturnin SDK test system",
                                                       '1.0',
                                                       saturnin.sdk.VENDOR_UID,
                                                       'system/test',
@@ -102,7 +105,7 @@ Attributes:
                                                       saturnin.sdk.PLATFORM_VERSION
                                                      )
     def get_token(self) -> bytes:
-        "Return FBSP message token from integer."
+        "Return new FBSP message token from internal counter."
         self._cnt += 1
         return pack('Q', self._cnt)
     def _raw_handshake(self, socket: zmq.Socket):

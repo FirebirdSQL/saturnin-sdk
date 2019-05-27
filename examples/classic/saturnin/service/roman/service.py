@@ -41,14 +41,15 @@ Supported requests:
 """
 
 import logging
+from typing import Any
 from itertools import groupby
 from saturnin.sdk.types import ServiceError, InvalidMessageError, MsgType, ErrorCode, \
      TSession
 from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.sdk.base import BaseChannel, BaseService
-from saturnin.sdk.classic import SimpleServiceImpl
 from saturnin.sdk.fbsp import ServiceMessagelHandler, HelloMessage, \
      CancelMessage, RequestMessage, bb2h
+from saturnin.sdk.service import SimpleServiceImpl
 
 # Logger
 
@@ -138,8 +139,8 @@ Arabic numbers replaced with Roman ones.
 
 class RomanServiceImpl(SimpleServiceImpl):
     """Implementation of ROMAN service."""
-    def __init__(self):
-        super().__init__()
+    def __init__(self, stop_event: Any):
+        super().__init__(stop_event)
         self.agent = SERVICE_AGENT
         self.api = SERVICE_API
     def initialize(self, svc: BaseService):

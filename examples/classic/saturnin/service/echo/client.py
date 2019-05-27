@@ -36,13 +36,18 @@
 ECHO service sends data frames back to the sender.
 """
 
+import logging
 from typing import List, Dict
 from struct import pack, unpack
-from saturnin.sdk.types import InterfaceDescriptor, ServiceError, enum_name
+from saturnin.sdk.types import InterfaceDescriptor, ServiceError
 from saturnin.service.echo.api import EchoRequest, SERVICE_INTERFACE
 from saturnin.sdk.fbsp import Session, MsgType, MsgFlag, State, bb2h, ReplyMessage, \
      ErrorMessage, DataMessage, StateMessage, exception_for
 from saturnin.sdk.client import ServiceClient
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 class EchoClient(ServiceClient):
     """Message handler for ECHO client."""
@@ -54,12 +59,14 @@ class EchoClient(ServiceClient):
                }
     def on_error(self, session: Session, msg: ErrorMessage):
         "Handle ERROR message received from Service."
+        log.debug("%s.on_error(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token
         if msg.token != session.greeting.token:
             session.request_done(msg.token)
         raise exception_for(msg)
     def on_reply(self, session: Session, msg: ReplyMessage):
         "Handle Service REPLY message."
+        log.debug("%s.on_reply(%s)", self.__class__.__name__, session.routing_id)
         req = session.get_request(msg.token)
         req.response = []
         if req.request_code == bb2h(self.interface_id, EchoRequest.ECHO_SYNC):
@@ -88,6 +95,7 @@ class EchoClient(ServiceClient):
             pass
     def on_data(self, session: Session, msg: DataMessage):
         "Handle DATA message."
+        log.debug("%s.on_data(%s)", self.__class__.__name__, session.routing_id)
         req = session.get_request(msg.token)
         # DATA messages could be related to different requests, so we need the request to
         # decide how to handle them.
@@ -125,13 +133,15 @@ class EchoClient(ServiceClient):
                     session.request_done(req)
     def on_state(self, session: Session, msg: StateMessage):
         "Handle STATE message."
+        log.debug("%s.on_state(%s)", self.__class__.__name__, session.routing_id)
         if msg.state == State.FINISHED:
             self.last_token_seen = msg.token
             session.request_done(msg.token)
         else:
-            raise ServiceError(f"Unexpected STATE {enum_name(msg.state)} response.")
+            raise ServiceError(f"Unexpected STATE {msg.state.name} response.")
     def on_simple_echo(self, session: Session, msg: ReplyMessage):
         "ECHO/ECHO_ROMAN reply handler."
+        log.debug("%s.on_simple_echo(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token
         req = session.get_request(msg.token)
         req.response = msg.data

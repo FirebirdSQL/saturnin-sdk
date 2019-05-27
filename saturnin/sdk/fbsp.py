@@ -44,12 +44,11 @@ from struct import pack, unpack
 from enum import IntEnum
 from time import monotonic
 import zmq
-from . import fbsp_pb2 as pb
-from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
-     BaseChannel, get_unique_key, peer_role
-from .types import TChannel, TServiceImpl, TSession, TMessage, Token, \
-     ServiceError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode, enum_name, \
-     enum_name_only
+from saturnin.sdk import fbsp_pb2 as pb
+from saturnin.sdk.base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
+     get_unique_key, peer_role
+from saturnin.sdk.types import TChannel, TServiceImpl, TSession, TMessage, Token, \
+     ServiceError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode
 
 PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.0' # firebird.butler.protocol.fbsp
 PROTOCOL_UID = uuid5(NAMESPACE_OID, PROTOCOL_OID)
@@ -158,6 +157,19 @@ def msg_bytes(msg: Union[bytes, bytearray, zmq.Frame]) -> bytes:
 def bb2h(value_hi: int, value_lo: int) -> int:
     "Compose two bytes into word value."
     return unpack('!H', pack('!BB', value_hi, value_lo))[0]
+
+def uid2uuid(lines: Sequence) -> List:
+    """Replace ugly escaped "uid" strings with standard UUID string format.
+"""
+    result = []
+    for line in lines:
+        s = line.strip()
+        if s.startswith('uid:') or '_uid:' in s:
+            i = line[line.index('"')+1:line.rindex('"')]
+            uuid = UUID(bytes=eval(f'b"{i}"'))
+            line = line.replace(i, str(uuid))
+        result.append(line)
+    return result
 
 # Base Message Classes
 
@@ -271,11 +283,11 @@ Raises:
                                                         MsgType.CANCEL, MsgType.CLOSE)):
             raise InvalidMessageError("Invalid Request Code '%d' for ERROR message"
                                       % (type_data & ERROR_TYPE_MASK))
-    def get_printout(self) -> str:
+    def get_printout(self, with_data = True) -> str:
         """Returns printable, multiline representation of message.
 """
-        lines = [f"Message type: {enum_name(self.message_type)}",
-                 f"Flags: {enum_name_only(self.flags)}",
+        lines = [f"Message type: {self.message_type.name}",
+                 f"Flags: {self.flags.name}",
                  f"Type data: {self.type_data}",
                  f"Token: {unpack('Q',self.token)[0]}"
                 ]
@@ -283,16 +295,10 @@ Raises:
         if extra:
             lines.extend(extra.strip().split('\n'))
         lines.append(f"# data frames: {len(self.data)}")
-        if self.data:
+        if with_data and self.data:
             for index, frame in enumerate(self.data, 1):
                 lines.append(f"{index}: {frame}")
         return "\n".join(lines)
-    #def print(self, indent: int = 4) -> None:
-        #"Print message"
-        #print('\n'.join(('%s%s' % (' ' * indent, line) for line
-                         #in self.get_printout().split('\n'))))
-        #print('    ' + '~' * 76)
-
 
 class HandshakeMessage(Message):
     """Base FBSP client/service handshake message (HELLO or WELCOME).
@@ -309,14 +315,15 @@ class HandshakeMessage(Message):
         "Called for printout of attributes defined by descendant classes."
         # protobuf returns UUIDs as ugly escaped strings
         # we prefer standard UUID string format
-        lines = []
-        for line in str(self.peer).splitlines():
-            if line.strip().startswith('uid:'):
-                i = line.split('"')
-                uuid = UUID(bytes=eval(f'b"{i[1]}"'))
-                line = line.replace(i[1], str(uuid))
-            lines.append(line)
-        return "Peer:\n%s" % '\n'.join(lines)
+        return "Peer:\n%s" % '\n'.join(uid2uuid(str(self.peer).splitlines()))
+        #lines = []
+        #for line in str(self.peer).splitlines():
+            #if line.strip().startswith('uid:'):
+                #i = line[line.index('"')+1:line.rindex('"')]
+                #uuid = UUID(bytes=eval(f'b"{i}"'))
+                #line = line.replace(i, str(uuid))
+            #lines.append(line)
+        #return "Peer:\n%s" % '\n'.join(lines)
     def clear(self) -> None:
         super().clear()
         self.peer.Clear()
@@ -458,7 +465,7 @@ class StateMessage(APIMessage):
         frames.append(self._state.SerializeToString())
     def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
-        lines = [f"State: {enum_name(self.state)}",
+        lines = [f"State: {self.state.name}",
                  f"Interface ID: {self.interface_id}",
                  f"API code: {self.api_code}"
                 ]
@@ -510,8 +517,8 @@ class ErrorMessage(Message):
             frames.append(err.SerializeToString())
     def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
-        lines = [f"Error code: {enum_name(self.error_code)}",
-                 f"Relates to: {enum_name(self.relates_to)}",
+        lines = [f"Error code: {self.error_code.name}",
+                 f"Relates to: {self.relates_to.name}",
                  f"# Error frames: {len(self.errors)}",
                 ]
         for index, err in enumerate(self.errors, 1):
@@ -808,20 +815,20 @@ Raises:
 """
         Message.validate_cframe(zmsg)
         (control_byte, flags) = unpack('!4xBB10x', msg_bytes(zmsg[0]))
-        message_type = control_byte >> 3
+        message_type = MsgType(control_byte >> 3)
         flags = MsgFlag(flags)
         if kwargs.get('greeting', False):
             if not (((message_type == MsgType.HELLO) and (origin == Origin.CLIENT)) or
                     ((message_type == MsgType.WELCOME) and (origin == Origin.SERVICE))):
                 raise InvalidMessageError("Invalid greeting %s from %s" %
-                                          (enum_name(message_type), enum_name(origin)))
+                                          (message_type.name, origin.name))
         if message_type not in self.ORIGIN_MESSAGES[origin]:
             if MsgFlag.ACK_REPLY not in flags:
                 raise InvalidMessageError("Illegal message type %s from %s" %
-                                          (enum_name(message_type), enum_name(origin)))
+                                          (message_type.name, origin.name))
             if message_type not in self.VALID_ACK:
                 raise InvalidMessageError("Illegal ACK message type %s from %s" %
-                                          (enum_name(message_type), enum_name(origin)))
+                                          (message_type.name, origin.name))
         self.MESSAGE_MAP[message_type].validate_zmsg(zmsg)
 
 _FBSP_INSTANCE = Protocol()
@@ -854,7 +861,7 @@ Abstract methods:
     def raise_protocol_violation(self, session: TSession, msg: Message) -> None:
         """Raises ServiceError."""
         raise ServiceError("Protocol violation from service, message type: %d" %
-                           enum_name(msg.message_type))
+                           msg.message_type.name)
     def send_protocol_violation(self, session: TSession, msg: Message) -> None:
         "Sends ERROR/PROTOCOL_VIOLATION message."
         errmsg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
@@ -926,9 +933,9 @@ Messages handled:
 Abstract methods:
     :handle_cancel:  Handle CANCEL message.
 """
-    def __init__(self, chn: BaseChannel, service):
+    def __init__(self, chn: TChannel, service_impl: TServiceImpl):
         super().__init__(chn, Origin.SERVICE)
-        self.impl: TServiceImpl = service
+        self.impl: TServiceImpl = service_impl
         self.handlers.update({MsgType.HELLO: self.on_hello,
                               MsgType.REQUEST: self.on_request,
                               MsgType.CANCEL: self.on_cancel,
@@ -1008,10 +1015,12 @@ Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
 
 def exception_for(msg: ErrorMessage) -> ServiceError:
     "Returns ServiceError exception from ERROR message."
-    desc = [f"{enum_name(msg.error_code)}, relates to {enum_name_only(msg.relates_to)}"]
+    desc = [f"{msg.error_code.name}, relates to {msg.relates_to.name}"]
     for err in msg.errors:
         desc.append(f"#{err.code} : {err.description}")
-    return ServiceError('\n'.join(desc))
+    exc = ServiceError('\n'.join(desc))
+    log.debug("exception_for()->%s", exc)
+    return exc
 
 class ClientMessageHandler(BaseFBSPlHandler):
     """Base class for Client handlers that process messages from Service.
@@ -1107,20 +1116,16 @@ Returns:
                 if not session.greeting:
                     self.protocol.validate(zmsg, peer_role(self.role), greeting=True)
                 msg = self.protocol.parse(zmsg)
-                try:
-                    self.dispatch(session, msg)
-                except Exception as exc:
-                    raise ServiceError("Exception raised while processing response from service") from exc
+                self.dispatch(session, msg)
             if self.last_token_seen and self.last_token_seen in (token, session.greeting.token):
                 return True
             if timeout:
                 stop = round((monotonic() - start) * 1000) >= timeout
         return False
-
     def on_unknown(self, session: TSession, msg: Message):
         "Default message handler for unrecognized messages. Raises `ServiceError`."
         log.debug("%s.on_unknown", self.__class__.__name__)
-        raise ServiceError("Unhandled %s message from service" % enum_name(msg.message_type))
+        raise ServiceError("Unhandled %s message from service" % msg.message_type.name)
     def on_close(self, session: TSession, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 

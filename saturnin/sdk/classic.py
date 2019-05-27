@@ -41,69 +41,14 @@ run in a separate thread or subprocess.
 """
 
 import logging
-from typing import Optional, Any, Mapping
-from time import sleep
-from zmq import Context, POLLIN
-from saturnin.sdk.types import TService
-from saturnin.sdk.base import ChannelManager, RouterChannel
-from saturnin.sdk.service import Service, ServiceImpl
+from typing import Optional, Mapping
+from zmq import POLLIN
+from saturnin.sdk.types import TServiceImpl
+from saturnin.sdk.service import Service
 
 # Logger
 
 log = logging.getLogger(__name__)
-
-class DummyEvent:
-    """Dummy Event class"""
-    def __init__(self):
-        self._flag = False
-    def is_set(self):
-        "Return true if and only if the internal flag is true."
-        return self._flag
-    isSet = is_set
-    def set(self):
-        "Set the internal flag to true."
-        self._flag = True
-    def clear(self):
-        "Reset the internal flag to false."
-        self._flag = False
-    def wait(self, timeout=0):
-        "Sleep for specified number of seconds and then return the internal flag state."
-        sleep(timeout)
-        return self._flag
-
-
-class SimpleServiceImpl(ServiceImpl):
-    """Simple Firebird Butler Service implementation.
-
-Attributes:
-    :svc_chn: Inbound RouterChannel
-
-Configuration options (retrieved via `get()`):
-    :shutdown_linger:  (int) ZMQ Linger value used on shutdown [Default 0].
-    :zmq_context: ZMQ context [default: Context.instance()]
-"""
-    def __init__(self):
-        super().__init__()
-        self.svc_chn: RouterChannel = None
-    def initialize(self, svc: TService):
-        """Performs next actions:
-
-    - Creates `ChannelManager` with shared ZMQ `Context` in service.
-    - Creates managed (inbound) `RouterChannel` for service.
-    - Creates/sets event to stop the service.
-"""
-        log.debug("%s.initialize", self.__class__.__name__)
-        super().initialize(svc)
-        self.mngr = ChannelManager(self.get('zmq_context', Context.instance()))
-        self.svc_chn = RouterChannel(self.instance_id)
-        self.mngr.add(self.svc_chn)
-    def configure(self, svc: TService):
-        """Performs next actions:
-    - Binds service router channel to specified endpoints.
-"""
-        log.debug("%s.configure", self.__class__.__name__)
-        for addr in self.get('endpoints'):
-            self.svc_chn.bind(addr)
 
 class SimpleService(Service):
     """Simple Firebird Butler Service.
@@ -113,13 +58,11 @@ are processed by `receive()` of channel handler.
 
 Attributes:
     :mngr:    ChannelManager
-    :event:   Event instance used to send STOP signal to the service.
     :timeout: How long it waits for incoming messages (default 1 sec).
     :remotes: Dictionary of remote service endpoints [interface_uid:addresss]. Initially empty.
 """
-    def __init__(self, impl: SimpleServiceImpl, event: Any):
+    def __init__(self, impl: TServiceImpl):
         super().__init__(impl)
-        self.event = event
         self.timeout: int = 1000  # 1sec
         self.remotes: Mapping[bytes, str] = {}
     def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
@@ -133,24 +76,18 @@ Raises:
 """
         log.debug("%s.validate", self.__class__.__name__)
         super().validate()
-        assert hasattr(self.event, 'is_set'), "Event without is_set attribute"
-        assert callable(self.event.is_set), "Event is_set is not callable"
         for uid, address in self.remotes.items():
             assert isinstance(uid, bytes)
             assert isinstance(address, str)
-    def on_idle(self):
-        """Called when wait for messages exceeds timeout. Default implementation
-does nothing.
-"""
     def run(self):
-        """Runs the service until `event` is set.
+        """Runs the service until `stop_event` is set.
 """
         log.info("Service %s:%s started", self.impl.agent.name, self.impl.agent.uid)
-        while not self.event.is_set():
+        while not self.impl.stop_event.is_set():
             events = self.impl.mngr.wait(self.timeout)
             if events:
                 for channel, event in events.items():
                     if event == POLLIN:
                         channel.handler.receive()
             else:
-                self.on_idle()
+                self.impl.on_idle()

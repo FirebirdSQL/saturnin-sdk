@@ -51,7 +51,7 @@ from enum import IntEnum
 from uuid import UUID
 from saturnin.sdk import VENDOR_UID
 from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
-     DependencyType
+     DependencyType, ExecutionMode, ServiceType
 from saturnin.service.roman import api as roman_api
 
 # It's not an official service, so we can use any UUID constants
@@ -76,7 +76,6 @@ class EchoRequest(IntEnum):
 
 SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
                                 "echo",
-                                "Sample ECHO service",
                                 SERVICE_VERSION,
                                 VENDOR_UID,
                                 "example/echo"
@@ -89,6 +88,8 @@ SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT,
                                         SERVICE_API,
                                         [(DependencyType.PREFERRED,
                                           roman_api.SERVICE_INTERFACE.uid)],
+                                        ExecutionMode.THREAD, ServiceType.PROCESSING,
+                                        "Sample ECHO service",
                                         'saturnin.service.echo.service:EchoServiceImpl',
                                         'saturnin.sdk.classic:SimpleService',
                                         'saturnin.service.echo.client:EchoClient',

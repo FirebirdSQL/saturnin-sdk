@@ -80,8 +80,8 @@ class TestMessages(unittest.TestCase):
         return self._fbsp.create_request_for(1, 1, get_token(4))
     def test_hello(self):
         "HELLO message"
-        expect = """Message type: HELLO: 1
-Flags: 0
+        expect = """Message type: HELLO
+Flags: NONE
 Type data: 0
 Token: 1
 Peer:
@@ -116,8 +116,8 @@ client {
             self.fail(str(exc))
     def test_welcome(self):
         "WELCOME message"
-        expect = """Message type: WELCOME: 2
-Flags: 0
+        expect = """Message type: WELCOME
+Flags: NONE
 Type data: 0
 Token: 1
 Peer:
@@ -169,13 +169,13 @@ api {
             self.fail(str(exc))
     def test_noop(self):
         "NOOP message"
-        expect = """Message type: NOOP: 3
+        expect = """Message type: NOOP
 Flags: ACK_REQ
 Type data: 0
 Token: 3
 # data frames: 0
 ==========
-Message type: NOOP: 3
+Message type: NOOP
 Flags: ACK_REPLY
 Type data: 0
 Token: 3
@@ -198,8 +198,8 @@ Token: 3
             self.fail(str(exc))
     def test_request(self):
         "REQUEST message"
-        expect = """Message type: REQUEST: 4
-Flags: 0
+        expect = """Message type: REQUEST
+Flags: NONE
 Type data: 257
 Token: 4
 Interface ID: 1
@@ -218,8 +218,8 @@ API code: 1
             self.fail(str(exc))
     def test_reply(self):
         "REPLY message"
-        expect = """Message type: REPLY: 5
-Flags: 0
+        expect = """Message type: REPLY
+Flags: NONE
 Type data: 257
 Token: 4
 Interface ID: 1
@@ -239,8 +239,8 @@ API code: 1
             self.fail(str(exc))
     def test_data(self):
         "DATA message"
-        expect = """Message type: DATA: 6
-Flags: 0
+        expect = """Message type: DATA
+Flags: NONE
 Type data: 0
 Token: 4
 # data frames: 0
@@ -256,8 +256,8 @@ Token: 4
             self.fail(str(exc))
     def test_cancel(self):
         "CANCEL message"
-        expect = """Message type: CANCEL: 7
-Flags: 0
+        expect = """Message type: CANCEL
+Flags: NONE
 Type data: 0
 Token: 7
 Cancel request:
@@ -278,11 +278,11 @@ token: "\\004\\000\\000\\000\\000\\000\\000\\000"
             self.fail(str(exc))
     def test_state(self):
         "STATE message"
-        expect = """Message type: STATE: 8
-Flags: 0
+        expect = """Message type: STATE
+Flags: NONE
 Type data: 257
 Token: 4
-State: RUNNING: 2
+State: RUNNING
 Interface ID: 1
 API code: 1
 # data frames: 0
@@ -300,8 +300,8 @@ API code: 1
             self.fail(str(exc))
     def test_close(self):
         "CLOSE message"
-        expect = """Message type: CLOSE: 9
-Flags: 0
+        expect = """Message type: CLOSE
+Flags: NONE
 Type data: 0
 Token: 1
 # data frames: 0
@@ -317,12 +317,12 @@ Token: 1
             self.fail(str(exc))
     def test_error(self):
         "ERROR message"
-        expect = """Message type: ERROR: 31
-Flags: 0
+        expect = """Message type: ERROR
+Flags: NONE
 Type data: 68
 Token: 4
-Error code: NOT_IMPLEMENTED: 2
-Relates to: REQUEST: 4
+Error code: NOT_IMPLEMENTED
+Relates to: REQUEST
 # Error frames: 1
 @1:
 code: 1

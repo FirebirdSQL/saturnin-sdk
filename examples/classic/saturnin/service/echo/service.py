@@ -48,6 +48,7 @@ Supported requests:
 """
 
 import logging
+from typing import Any
 from uuid import uuid1
 from struct import pack, unpack
 from saturnin.service.echo.api import EchoRequest, SERVICE_AGENT, SERVICE_API
@@ -56,7 +57,7 @@ from saturnin.service.roman.client import RomanClient
 from saturnin.sdk.types import ServiceError, InvalidMessageError
 from saturnin.sdk.base import BaseChannel, BaseService, \
      DealerChannel
-from saturnin.sdk.classic import SimpleServiceImpl
+from saturnin.sdk.service import SimpleServiceImpl
 from saturnin.sdk.fbsp import Session, bb2h, ServiceMessagelHandler, \
      MsgType, MsgFlag, State, ErrorCode, HelloMessage, CancelMessage, DataMessage, \
      ReplyMessage, RequestMessage
@@ -88,6 +89,7 @@ class EchoMessageHandler(ServiceMessagelHandler):
                              })
         # Optional ROMAN client
         self.roman_cli: RomanClient = None
+        self.roman_address = None
     def on_invalid_message(self, session: Session, exc: InvalidMessageError):
         "Invalid Message event."
         log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
@@ -237,13 +239,20 @@ All messages must have a valid handle in `type_data`.
         "ECHO_ROMAN request handler."
         log.debug("%s.on_echo_roman(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
-        reply = self.protocol.create_reply_for(msg)
         #
-        if self.roman_cli:
+        if self.roman_cli is not None and not self.roman_cli.is_active():
+            # ROMAN service is not yet connected
+            self.roman_cli.open(self.roman_address)
+        if self.roman_cli is not None and self.roman_cli.is_active():
+            reply = self.protocol.create_reply_for(msg)
             # copy data from ROMAN's reply
             try:
                 reply.data.extend(list(self.roman_cli.roman(*msg.data, timeout=1000)))
             except TimeoutError as exc:
+                reply = self.protocol.create_error_for(msg, ErrorCode.REQUEST_TIMEOUT)
+                err = reply.add_error()
+                err.description = str(exc)
+            except Exception as exc:
                 reply = self.protocol.create_error_for(msg, ErrorCode.REQUEST_TIMEOUT)
                 err = reply.add_error()
                 err.description = str(exc)
@@ -325,8 +334,8 @@ All messages must have a valid handle in `type_data`.
 
 class EchoServiceImpl(SimpleServiceImpl):
     """Implementation of ECHO service."""
-    def __init__(self):
-        super().__init__()
+    def __init__(self, stop_event: Any):
+        super().__init__(stop_event)
         self.agent = SERVICE_AGENT
         self.api = SERVICE_API
         self.roman_chn = None
@@ -341,11 +350,14 @@ class EchoServiceImpl(SimpleServiceImpl):
             self.roman_chn = DealerChannel(uuid1().bytes, False)
             self.mngr.add(self.roman_chn)
             self.roman_chn.socket.connect_timeout = 1
-            roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
-            try:
-                roman_cli.open(roman_address)
-                self.msg_handler.roman_cli = roman_cli
-            except:
-                # we can live without ROMAN service, just clean up the ROMAN channel
-                self.mngr.remove(self.roman_chn)
-                self.roman_chn.close()
+            self.msg_handler.roman_address = roman_address
+            self.msg_handler.roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
+
+            #roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
+            #try:
+                #roman_cli.open(roman_address)
+                #self.msg_handler.roman_cli = roman_cli
+            #except:
+                ## we can live without ROMAN service, just clean up the ROMAN channel
+                #self.mngr.remove(self.roman_chn)
+                #self.roman_chn.close()

@@ -43,7 +43,8 @@ Supported requests:
 from enum import IntEnum
 from uuid import UUID
 from saturnin.sdk import VENDOR_UID
-from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor
+from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
+     ExecutionMode, ServiceType
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
@@ -61,17 +62,20 @@ class RomanRequest(IntEnum):
 
 SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
                                 "roman",
-                                "Sample ROMAN service",
                                 SERVICE_VERSION,
                                 VENDOR_UID,
-                                "example/roman",
+                                "example/roman"
                                )
+
 SERVICE_INTERFACE = InterfaceDescriptor(ROMAN_INTERFACE_UID, "Roman service API", 1,
                                         RomanRequest)
 SERVICE_API = [SERVICE_INTERFACE]
 
 SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT, SERVICE_API, [],
+                                        ExecutionMode.THREAD, ServiceType.PROCESSING,
+                                        "Sample ROMAN service",
                                         'saturnin.service.roman.service:RomanServiceImpl',
                                         'saturnin.sdk.classic:SimpleService',
                                         'saturnin.service.roman.client:RomanClient',
                                         'saturnin.service.roman.test:TestRunner')
+

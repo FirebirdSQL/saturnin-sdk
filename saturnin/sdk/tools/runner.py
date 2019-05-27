@@ -36,29 +36,36 @@
 
 """
 
+from traceback import print_exc
 import logging
 from typing import Dict, List, Optional
 from uuid import UUID, uuid1
 from os import getpid
+import socket
+import platform
 from argparse import ArgumentParser, Action
-from threading import Thread, Event
+import multiprocessing
+import threading
 from time import sleep
 from pkg_resources import iter_entry_points
 import zmq
-from saturnin.sdk.types import PeerDescriptor, ServiceDescriptor, DependencyType
+from saturnin.sdk.types import PeerDescriptor, ServiceDescriptor, DependencyType, \
+     ExecutionMode
 from saturnin.sdk.base import load
-#from saturnin.sdk.classic import SimpleService, SimpleServiceImpl
 
 __VERSION__ = '0.1'
+
+# Functions
 
 def protocol_name(address: str) -> str:
     "Returns protocol name from address."
     return address.split(':', 1)[0].lower()
 
-def get_best_endpoint(endpoints) -> Optional[str]:
+def get_best_endpoint(endpoints, client_mode=ExecutionMode.PROCESS,
+                      service_mode=ExecutionMode.PROCESS) -> Optional[str]:
     "Returns endpoint that uses the best protocol from available options."
     inproc = [x for x in endpoints if protocol_name(x) == 'inproc']
-    if inproc:
+    if (inproc and client_mode == ExecutionMode.THREAD and service_mode == ExecutionMode.THREAD):
         return inproc[0]
     ipc = [x for x in endpoints if protocol_name(x) == 'ipc']
     if ipc:
@@ -66,31 +73,55 @@ def get_best_endpoint(endpoints) -> Optional[str]:
     tcp = [x for x in endpoints if protocol_name(x) == 'tcp']
     return tcp[0]
 
+def service_run(endpoints, svc_descriptor, ready_event, stop_event, remotes):
+    "Process or thread target code to run the service."
+    svc_implementation = load(svc_descriptor.implementation)
+    svc_class = load(svc_descriptor.container)
+    svc_impl = svc_implementation(stop_event)
+    svc_impl.endpoints = endpoints
+    svc_impl.peer = PeerDescriptor(uuid1(), getpid(), socket.getfqdn())
+    svc = svc_class(svc_impl)
+    svc.remotes = remotes.copy()
+    svc.initialize()
+    ready_event.set()
+    svc.start()
+
+#  Classes
 
 class UpperAction(Action):
     "Converts argument to uppercase."
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values.upper())
 
-class Service(Thread):
-    "Classic Simple Butler Service executed in its own thread."
-    def __init__(self, name: str, endpoints: List[str], svc_descriptor: ServiceDescriptor):
-        super().__init__()
+class Service:
+    "Service handler."
+    def __init__(self, name: str, endpoints: List[str], svc_descriptor: ServiceDescriptor,
+                 mode: ExecutionMode = ExecutionMode.ANY):
         self.uid = svc_descriptor.agent.uid
         self.name = name
         self.endpoints = endpoints
         self.svc_descriptor = svc_descriptor
-        self.svc_implementation = load(svc_descriptor.implementation)
-        self.svc_class = load(svc_descriptor.container)
-        self.stop_event = Event()
+        if mode != ExecutionMode.ANY:
+            self.mode = mode
+        elif svc_descriptor.execution_mode != ExecutionMode.ANY:
+            self.mode = svc_descriptor.execution_mode
+        else:
+            self.mode = ExecutionMode.THREAD
         self.remotes: Dict[str, str] = {}
-    def run(self):
-        svc_impl = self.svc_implementation()
-        svc_impl.endpoints = self.endpoints
-        svc_impl.peer = PeerDescriptor(uuid1(), getpid(), 'localhost')
-        svc = self.svc_class(svc_impl, self.stop_event)
-        svc.remotes = self.remotes.copy()
-        svc.start()
+        if self.mode in (ExecutionMode.ANY, ExecutionMode.THREAD):
+            self.ready_event = threading.Event()
+            self.stop_event = threading.Event()
+            self.runtime = threading.Thread(target=service_run, name=name,
+                                            args=(endpoints, svc_descriptor,
+                                                  self.ready_event, self.stop_event,
+                                                  self.remotes))
+        else:
+            self.ready_event = multiprocessing.Event()
+            self.stop_event = multiprocessing.Event()
+            self.runtime = multiprocessing.Process(target=service_run, name=name,
+                                                   args=(endpoints, svc_descriptor,
+                                                         self.ready_event, self.stop_event,
+                                                         self.remotes))
 
 class Runner:
     """Service and test runner"""
@@ -133,7 +164,8 @@ class Runner:
             if not endpoints:
                 endpoints.append(f'inproc://{service_name}')
             self.remotes[service_name] = endpoints
-    def load_services(self, services: List):
+    def load_services(self, services: List, in_thread: Optional[List],
+                      in_process: Optional[List]):
         "Prepare services for running."
         for service_spec in services:
             service_name = service_spec.pop(0)
@@ -146,7 +178,7 @@ class Runner:
                 if endpoint.lower() == 'inproc':
                     endpoints.append(f'inproc://{service_name}')
                 elif endpoint.lower() == 'ipc':
-                    endpoints.append(f'ipc://{service_name}')
+                    endpoints.append(f'ipc://@{service_name}')
                 elif endpoint.lower() == 'tcp':
                     endpoints.append(f'tcp://127.0.0.1:{self.port}')
                     self.port += 1
@@ -154,7 +186,18 @@ class Runner:
                     endpoints.append(endpoint)
             if not endpoints:
                 endpoints.append(f'inproc://{service_name}')
-            service = Service(service_name, endpoints, self.name_map[service_name])
+                if platform.system() == 'Linux':
+                    endpoints.append(f'ipc://@{service_name}')
+                endpoints.append(f'tcp://127.0.0.1:{self.port}')
+                self.port += 1
+            mode = ExecutionMode.ANY
+            if in_thread is not None:
+                if not in_thread or service_name in in_thread:
+                    mode = ExecutionMode.THREAD
+            if in_process is not None:
+                if not in_process or service_name in in_process:
+                    mode = ExecutionMode.PROCESS
+            service = Service(service_name, endpoints, self.name_map[service_name], mode)
             self.services[service.uid] = service
         # Check prerequisites
         for service in self.services.values():
@@ -164,7 +207,8 @@ class Runner:
                     if provider_desciptor.agent.uid in self.services:
                         remote_service = self.services[provider_desciptor.agent.uid]
                         service.remotes[interface_uid.bytes] = \
-                            get_best_endpoint(remote_service.endpoints)
+                            get_best_endpoint(remote_service.endpoints, service.mode,
+                                              remote_service.mode)
                     elif provider_desciptor.agent.name in self.remotes:
                         remote_endpoints = self.remotes[provider_desciptor.agent.name]
                         service.remotes[interface_uid.bytes] = get_best_endpoint(remote_endpoints)
@@ -190,17 +234,20 @@ class Runner:
     def start_services(self):
         """Start services."""
         for service in self.services.values():
-            print(f"Starting '{service.name}' service...", end='')
-            service.start()
-            print("done.")
+            print("Starting '%s' service %s with endpoints: %s" % (service.name,
+                                                                   service.mode.name.lower(),
+                                                                   ', '.join(service.endpoints)))
+            service.runtime.start()
+            if not service.ready_event.wait(5):
+                raise Exception(f"The service {service.name} did not start in time.")
     def stop_services(self):
         """Stop services."""
         for service in self.services.values():
-            print(f"Stopping '{service.name}' service...", end='')
+            print(f"Stopping '{service.name}' service {service.mode.name.lower()}.")
             service.stop_event.set()
-        #for service in self.services.values():
-            service.join()
-            print("done.")
+        for service in self.services.values():
+            if service.runtime.is_alive():
+                service.runtime.join()
     def shutdown(self):
         "Stops the runner."
         self.stop_services()
@@ -210,9 +257,10 @@ class Runner:
         "Run tests."
         test_type = 'raw' if raw else 'client'
         print(f"Running {test_type} tests on '{service_name}' service")
-        test_service = self.get_service_by_name(service_name)
-        if test_service is not None:
-            endpoint = get_best_endpoint(test_service.endpoints)
+        if service_name in self.name_map:
+            test_service = self.get_service_by_name(service_name)
+            endpoint = get_best_endpoint(test_service.endpoints, ExecutionMode.THREAD,
+                                         test_service.mode)
         else:
             endpoint = get_best_endpoint(self.remotes[service_name])
         if raw:
@@ -228,6 +276,8 @@ def main():
     logging.basicConfig(format='%(levelname)s:%(threadName)s:%(name)s:%(message)s')
     #logging.basicConfig()
 
+    multiprocessing.set_start_method('spawn')
+
     runner = Runner()
 
     description = """Saturnin service and test runner"""
@@ -240,11 +290,15 @@ def main():
                         help="Name of service to be tested.")
     parser.add_argument('--raw', action='store_true',
                         help="Execute raw ZMQ test.")
+    parser.add_argument('--thread', nargs='*', metavar='SERVICE_NAME',
+                        help="Execute all (or listed) services in separate threads.")
+    parser.add_argument('--process', nargs='*', metavar='SERVICE_NAME',
+                        help="Execute all (or listed) services in separate process.")
     parser.add_argument('-l', '--log-level', action=UpperAction,
                         choices=[x.lower() for x in logging._nameToLevel
                                  if isinstance(x, str)],
                         help="Logging level")
-    parser.set_defaults(raw=False, log_level='ERROR')
+    parser.set_defaults(raw=False, log_level='ERROR', thread=None, process=None)
 
     try:
         args = parser.parse_args()
@@ -254,7 +308,7 @@ def main():
         if args.remote:
             runner.load_remote_services(args.remote)
         if args.service:
-            runner.load_services(args.service)
+            runner.load_services(args.service, args.thread, args.process)
         if args.test:
             runner.load_test(args.test)
         try:
@@ -269,8 +323,8 @@ def main():
             print("\nTerminating on user request...")
         finally:
             runner.shutdown()
-    except Exception as exc:
-        print(exc)
+    except Exception:
+        print_exc()
     logging.shutdown()
     print('Done.')
 

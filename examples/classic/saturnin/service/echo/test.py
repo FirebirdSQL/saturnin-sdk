@@ -73,6 +73,18 @@ class TestRunner(BaseTestRunner):
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
+    def raw_roman(self, socket: zmq.Socket):
+        "Raw test of ECHO_ROMAN request."
+        print("Sending ECHO request:")
+        msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_ROMAN,
+                                               self.get_token())
+        msg.data.extend(self.test_data)
+        print_msg(msg)
+        socket.send_multipart(msg.as_zmsg())
+        print("Receiving reply:")
+        zmsg = socket.recv_multipart()
+        msg = self.protocol.parse(zmsg)
+        print_msg(msg)
     def raw_echo_more(self, socket: zmq.Socket):
         "Raw test of ECHO_MORE request."
         print("Sending ECHO_MORE request:")

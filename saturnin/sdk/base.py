@@ -38,10 +38,12 @@ import logging
 from typing import Any, Dict, List, Sequence, ValuesView, Optional
 from uuid import uuid5, NAMESPACE_OID, UUID
 from weakref import proxy
+from time import sleep
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
-from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, TService, \
-     TSession, TMessage, Origin, SocketMode, Direction, InvalidMessageError, ChannelError
+from saturnin.sdk.types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
+     TService, TSession, TMessage, ZMQAddressList, ZMQAddress, Origin, SocketMode, Direction, \
+     InvalidMessageError, ChannelError, ServiceError
 
 # Constants
 
@@ -99,7 +101,7 @@ Arguments:
     :**kwargs:    will be passed to the __init__ method of the socket class.
 """
         return self.ctx.socket(socket_type, **kwargs)
-    def add(self, channel):
+    def add(self, channel: TChannel) -> None:
         """Add channel to the manager."""
         log.debug("%s.add", self.__class__.__name__)
         channel._mngr = proxy(self)
@@ -107,24 +109,24 @@ Arguments:
         channel.uid = i
         self._ch[i] = channel
         channel.create_socket()
-    def remove(self, channel):
+    def remove(self, channel: TChannel) -> None:
         """Remove channel from the manager."""
         log.debug("%s.remove", self.__class__.__name__)
         self.unregister(channel)
         channel._mngr = None
         del self._ch[channel.uid]
         channel.uid = None
-    def is_registered(self, channel) -> bool:
+    def is_registered(self, channel: TChannel) -> bool:
         """Returns True if channel is registered in Poller."""
         assert channel.socket, "Channel socket not created"
         return channel.socket in self._poller._map
-    def register(self, channel):
+    def register(self, channel: TChannel) -> None:
         """Register channel in Poller."""
         log.debug("%s.register", self.__class__.__name__)
         if not self.is_registered(channel):
             self._poller.register(channel.socket, POLLIN)
             self.__chmap[channel.socket] = channel
-    def unregister(self, channel):
+    def unregister(self, channel: TChannel) -> None:
         """Unregister channel from Poller."""
         log.debug("%s.unregister", self.__class__.__name__)
         if self.is_registered(channel):
@@ -140,7 +142,7 @@ Returns:
     {TChannel: events} dictionary.
 """
         return dict((self.__chmap[skt], e) for skt, e in self._poller.poll(timeout))
-    def shutdown(self, *args):
+    def shutdown(self, *args) -> None:
         """Terminate all managed channels.
 
 Arguments:
@@ -177,14 +179,14 @@ Attributes:
 Arguments:
     :frames: Sequence of frames that should be deserialized.
 """
-        self.data = frames
+        self.data = list(frames)
     def as_zmsg(self) -> Sequence:
         """Returns message as sequence of ZMQ data frames."""
         zmsg = []
         zmsg.extend(self.data)
         return zmsg
     def clear(self) -> None:
-        """Clears message attributes."""
+        """Clears message data."""
         self.data.clear()
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
@@ -221,7 +223,7 @@ Attributes:
 """
     def __init__(self, routing_id: bytes):
         self.routing_id: bytes = routing_id
-        self.endpoint: Optional[str] = None
+        self.endpoint: Optional[ZMQAddress] = None
 
 
 class BaseProtocol:
@@ -330,8 +332,8 @@ Arguments:
         self._mngr: ChannelManager = None
         self.socket: Socket = None
         self.routed: bool = False
-        self.endpoints: List[str] = []
-    def __set_mngr_poll(self, value: bool):
+        self.endpoints: ZMQAddressList = []
+    def __set_mngr_poll(self, value: bool) -> None:
         "Sets mngr_poll."
         if not value:
             self.manager.unregister(self)
@@ -342,7 +344,7 @@ Arguments:
         "Sets send_timeout."
         self.socket.sndtimeo = timeout
         self._send_timeout = timeout
-    def drop_socket(self):
+    def drop_socket(self) -> None:
         "Unconditionally drops the ZMQ socket."
         try:
             if self.socket:
@@ -350,7 +352,7 @@ Arguments:
         except ZMQError:
             pass
         self.socket = None
-    def create_socket(self):
+    def create_socket(self) -> None:
         """Create ZMQ socket for this channel.
 
 Called when channel is assigned to manager.
@@ -361,21 +363,25 @@ Called when channel is assigned to manager.
         if self._identity:
             self.socket.identity = self._identity
         self.socket.sndtimeo = self._send_timeout
-    def on_first_endpoint(self):
+    def on_first_endpoint(self) -> None:
         """Called after the first endpoint is successfully opened.
 
 Registers channel socket into manager Poller if required.
 """
         if self.mngr_poll:
             self.manager.register(self)
-    def on_last_endpoint(self):
+    def on_last_endpoint(self) -> None:
         """Called after the last endpoint is successfully closed.
 
 Unregisters channel socket from manager Poller.
 """
         self.manager.unregister(self)
-    def bind(self, endpoint: str):
+    def bind(self, endpoint: ZMQAddress) -> ZMQAddress:
         """Bind the 0MQ socket to an address.
+
+Returns:
+    The endpoint address. The returned address MAY differ from original address when
+    wildcard specification is used.
 
 Raises:
     :ChannelError: On attempt to a) bind another endpoint for PAIR socket, or b) bind
@@ -388,15 +394,19 @@ Raises:
         if endpoint in self.endpoints:
             raise ChannelError(f"Endpoint '{endpoint}' already openned")
         self.socket.bind(endpoint)
+        if '*' in endpoint:
+            endpoint = self.socket.LAST_ENDPOINT
         self._mode = SocketMode.BIND
         if not self.endpoints:
             self.on_first_endpoint()
         self.endpoints.append(endpoint)
-    def unbind(self, endpoint: Optional[str] = None):
+        return endpoint
+    def unbind(self, endpoint: Optional[ZMQAddress] = None) -> None:
         """Unbind from an address (undoes a call to `bind()`).
 
 Arguments:
     :endpoint: Endpoint address or None to unbind from all binded endpoints.
+               Note: The address must be the same as the addresss returned by `bind()`.
 
 Raises:
     :ChannelError: If channel is not binded to specified `endpoint`.
@@ -412,7 +422,7 @@ Raises:
         if not self.endpoints:
             self.on_last_endpoint()
             self._mode = SocketMode.UNKNOWN
-    def connect(self, endpoint: str, routing_id: Optional[bytes] = None):
+    def connect(self, endpoint: ZMQAddress, routing_id: Optional[bytes] = None) -> None:
         """Connect to a remote channel.
 
 Raises:
@@ -432,11 +442,12 @@ Raises:
         if not self.endpoints:
             self.on_first_endpoint()
         self.endpoints.append(endpoint)
-    def disconnect(self, endpoint: Optional[str] = None):
+    def disconnect(self, endpoint: Optional[ZMQAddress] = None) -> None:
         """Disconnect from a remote socket (undoes a call to `connect()`).
 
 Arguments:
     :endpoint: Endpoint address or None to disconnect from all connected endpoints.
+               Note: The address must be the same as the addresss returned by `connect()`.
 
 Raises:
     :ChannelError: If channel is not connected to specified `endpoint`.
@@ -452,19 +463,17 @@ Raises:
         if not self.endpoints:
             self.on_last_endpoint()
             self._mode = SocketMode.UNKNOWN
-    def send(self, zmsg: List):
+    def send(self, zmsg: List) -> None:
         "Send ZMQ multipart message."
         log.debug("%s.send", self.__class__.__name__)
-        assert Direction.OUT in self.direction, \
-               "Call to send() on RECEIVE-only channel"
+        assert Direction.OUT in self.direction, "Call to send() on RECEIVE-only channel"
         self.socket.send_multipart(zmsg, NOBLOCK)
     def receive(self) -> List:
         "Receive ZMQ multipart message."
         log.debug("%s.receive", self.__class__.__name__)
-        assert Direction.IN in self.direction, \
-               "Call to receive() on SEND-only channel"
+        assert Direction.IN in self.direction, "Call to receive() on SEND-only channel"
         return self.socket.recv_multipart(NOBLOCK)
-    def close(self, *args):
+    def close(self, *args) -> None:
         """Permanently closes the channel by closing the ZMQ scoket.
 
 Arguments:
@@ -474,6 +483,9 @@ Arguments:
         self.socket.close(*args)
         if self.handler:
             self.handler.closing()
+    def is_active(self) -> bool:
+        "Returns True if channel is active (binded or connected)."
+        return bool(self.endpoints)
 
     mode: SocketMode = property(lambda self: self._mode, doc="ZMQ Socket mode")
     manager: ChannelManager = property(lambda self: self._mngr, doc="Channel manager")
@@ -508,11 +520,10 @@ Arguments:
         self.chn: TChannel = chn
         chn.handler = self
         self.__role: Origin = role
-        self.routed: bool = isinstance(chn, RouterChannel)
         self.sessions: Dict[bytes, BaseSession] = {}
         self.protocol: TProtocol = BaseProtocol()
         self.__scls: TSession = session_class
-    def create_session(self, routing_id: bytes):
+    def create_session(self, routing_id: bytes) -> TSession:
         """Session object factory."""
         log.debug("%s.create_session(%s)", self.__class__.__name__, routing_id)
         session = self.__scls(routing_id)
@@ -521,7 +532,7 @@ Arguments:
     def get_session(self, routing_id: bytes = INTERNAL_ROUTE) -> TSession:
         "Returns session object registered for route or None."
         return self.sessions.get(routing_id)
-    def discard_session(self, session: TSession):
+    def discard_session(self, session: TSession) -> None:
         """Discard session object.
 
 If `session.endpoint` value is set, it also disconnects channel from this endpoint.
@@ -533,25 +544,25 @@ Arguments:
         if session.endpoint:
             self.chn.disconnect(session.endpoint)
         del self.sessions[session.routing_id]
-    def closing(self):
+    def closing(self) -> None:
         """Called by channel on Close event.
 
 The base implementation does nothing.
 """
-    def on_invalid_message(self, session: TSession, exc: InvalidMessageError):
+    def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
         """Called by `receive()` on Invalid Message event.
 
 The base implementation does nothing.
 """
         log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
-    def on_invalid_greeting(self, exc: InvalidMessageError):
+    def on_invalid_greeting(self, exc: InvalidMessageError) -> None:
         """Called by `receive()` on Invalid Greeting event.
 
 The base implementation does nothing.
 """
         log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-    def on_dispatch_error(self, session: TSession, exc: Exception):
+    def on_dispatch_error(self, session: TSession, exc: Exception) -> None:
         """Called by `receive()` on Exception unhandled by `dispatch()`.
 
 The base implementation does nothing.
@@ -574,7 +585,7 @@ Arguments:
         session = self.create_session(routing_id)
         session.endpoint = endpoint
         return session
-    def receive(self, zmsg: Optional[List] = None):
+    def receive(self, zmsg: Optional[List] = None) -> None:
         "Receive and process message from channel."
         if not zmsg:
             zmsg = self.chn.receive()
@@ -596,14 +607,14 @@ Arguments:
             self.dispatch(session, msg)
         except Exception as exc:
             self.on_dispatch_error(session, exc)
-    def send(self, msg: TMessage, session: TSession = None):
+    def send(self, msg: TMessage, session: TSession = None) -> None:
         "Send message through channel."
         zmsg = msg.as_zmsg()
         if self.chn.routed:
             assert session
             zmsg.insert(0, session.routing_id)
         self.chn.send(zmsg)
-    def dispatch(self, session: TSession, msg: TMessage):
+    def dispatch(self, session: TSession, msg: TMessage) -> None:
         """Process message received from peer.
 
 This method MUST be overridden in child classes.
@@ -613,16 +624,41 @@ Arguments:
     :msg:     Received message.
 """
         raise NotImplementedError
+    def is_active(self) -> bool:
+        "Returns True if habndler has any active session (connection)."
+        return bool(self.sessions)
 
     role: Origin = property(lambda self: self.__role,
                             doc="The role that the handler performs.")
+
+class DummyEvent:
+    """Dummy Event class.
+"""
+    def __init__(self):
+        self._flag: bool = False
+    def is_set(self) -> bool:
+        "Return true if and only if the internal flag is true."
+        return self._flag
+    isSet = is_set
+    def set(self) -> None:
+        "Set the internal flag to true."
+        self._flag = True
+    def clear(self) -> None:
+        "Reset the internal flag to false."
+        self._flag = False
+    def wait(self, timeout=0) -> bool:
+        "Sleep for specified number of seconds and then return the internal flag state."
+        sleep(timeout)
+        return self._flag
+
 
 class BaseServiceImpl:
     """Base Firebird Butler Service implementation.
 
 Attributes:
-    :mngr: ChannelManager instance. NOT INITIALIZED.
-    :endpoints: List of end points to which the service shall bind itself. Initially empty.
+    :mngr:       ChannelManager instance. NOT INITIALIZED.
+    :endpoints:  List of end points to which the service shall bind itself. Initially empty.
+    :stop_event: Event object used to stop the service.
 
 Configuration options (retrieved via `get()`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 0].
@@ -630,9 +666,10 @@ Configuration options (retrieved via `get()`):
 Abstract methods:
     :initialize: Service initialization.
 """
-    def __init__(self):
+    def __init__(self, stop_event: Any):
+        self.stop_event = stop_event
         self.mngr: ChannelManager = None
-        self.endpoints: Sequence = []
+        self.endpoints: ZMQAddressList = []
     def get(self, name: str, *args) -> Any:
         """Returns value of variable.
 
@@ -652,7 +689,7 @@ Raises:
         else:
             value = getattr(self, name, *args)
         return value
-    def validate(self):
+    def validate(self) -> None:
         """Validate that service implementation defines all necessary configuration options
 needed for initialization and configuration.
 
@@ -663,13 +700,13 @@ Raises:
         assert isinstance(self.endpoints, Sequence)
         for entrypoint in self.endpoints:
             assert isinstance(entrypoint, str)
-    def initialize(self, svc: TService):
+    def initialize(self, svc: TService) -> None:
         """Service initialization.
 
 Must create the channel manager with zmq.context and at least one communication channel.
 """
         raise NotImplementedError
-    def finalize(self, svc: TService):
+    def finalize(self, svc: TService) -> None:
         """Service finalization.
 
 Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
@@ -677,8 +714,12 @@ is not defined, uses linger 0 for forced shutdown.
 """
         log.debug("%s.finalize", self.__class__.__name__)
         self.mngr.shutdown(self.get('shutdown_linger', 0))
-    def configure(self, svc: TService):
+    def configure(self, svc: TService) -> None:
         "Service configuration. Default implementation does nothing."
+    def on_idle(self) -> None:
+        """Should by called by service when waiting for messages exceeds timeout. Default
+implementation does nothing.
+"""
 
 class BaseService:
     """Base Firebird Butler Service.
@@ -697,13 +738,14 @@ Abstract methods:
 Arguments:
     :impl:    Service implementation.
 """
-        self.impl = impl
+        self.impl: TServiceImpl = impl
+        self.__ready = False
     def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
         """Return address of interface provider or None if it's not available. Default
 implementation always returns None.
 """
         return None
-    def validate(self):
+    def validate(self) -> None:
         """Validate that service is properly initialized and configured.
 
 Raises:
@@ -715,21 +757,31 @@ Raises:
         assert self.impl.mngr.channels, "Channel manager without channels"
         for chn in self.impl.mngr.channels:
             assert chn.handler, "Channel without handler"
-    def run(self):
+    def run(self) -> None:
         """Runs the service."""
         raise NotImplementedError
-    def start(self):
-        """Starts the service. It initializes, configures, validates and then runs the
-service. Performs finalization when run() finishes.
+    def initialize(self) -> None:
+        """Runs initialization, configuration and validation of the service.
+
+Raises:
+    :ServiceError: When service is not properly initialized and configured.
 """
-        log.info("Starting service %s:%s", self.impl.agent.name, self.impl.agent.uid)
+        log.info("Initialization of the service %s:%s", self.impl.agent.name, self.impl.agent.uid)
         self.impl.validate()
         self.impl.initialize(self)
         self.impl.configure(self)
         try:
             self.validate()
         except AssertionError as exc:
-            raise Exception("Service is not properly initialized and configured.") from exc
+            raise ServiceError("Service is not properly initialized and configured.") from exc
+        self.__ready = True
+    def start(self) -> None:
+        """Starts the service. Initializes the service if necessary. Performs finalization
+when run() finishes.
+"""
+        log.info("Starting service %s:%s", self.impl.agent.name, self.impl.agent.uid)
+        if not self.__ready:
+            self.initialize()
         try:
             self.run()
         finally:

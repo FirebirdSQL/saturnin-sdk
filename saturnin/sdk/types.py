@@ -52,6 +52,8 @@ TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
 TClient = TypeVar('TClient', bound='ServiceClient')
 Token = bytearray
+ZMQAddress = bytes
+ZMQAddressList = List[ZMQAddress]
 
 # Enums
 
@@ -78,9 +80,23 @@ class Direction(Flag):
 
 class DependencyType(Enum):
     "Service dependency type"
+    OPTIONAL = 0
     REQUIRED = 1
     PREFERRED = 2
-    OPTIONAL = 3
+
+class ExecutionMode(Enum):
+    "Service execution mode"
+    ANY = 0
+    THREAD = 1
+    PROCESS = 2
+
+class ServiceType(Enum):
+    "Service type"
+    UNKNOWN = 0
+    MEASURING = 1 # Service that collects and pass on data.
+    PROCESSING = 2 # Service that takes data on input, process them and have some data on output
+    PROVIDER = 3 # Service that does things on request
+    CONTROL = 4 # Service that manages other services
 
 class MsgType(IntEnum):
     "FBSP Message Type"
@@ -98,6 +114,7 @@ class MsgType(IntEnum):
 
 class MsgFlag(IntFlag):
     "FBSP message flag"
+    NONE = 0
     ACK_REQ = 1
     ACK_REPLY = 2
     MORE = 4
@@ -128,17 +145,34 @@ class ErrorCode(IntEnum):
 # Named tuples
 
 class InterfaceDescriptor(NamedTuple):
-    """Interface descriptor"""
+    """Interface descriptor.
+
+Attributes:
+    :uid:      Interface ID (UUID).
+    :name:     Interface name.
+    :revision: Interface revision number.
+    :requests: Enum for interface FBSP request codes.
+"""
     uid: UUID
     name: str
     revision: int
     requests: IntEnum
 
 class AgentDescriptor(NamedTuple):
-    """Service or Client descriptor"""
+    """Service or Client descriptor.
+
+Attributes:
+    :uid:              Agent ID (UUID).
+    :name:             Agent name.
+    :version:          Agent version string.
+    :vendor_uid:       Vendor ID (UUID).
+    :classification:   Agent classification string.
+    :platform_uid:     Butler platform ID (UUID)
+    :platform_version: Butler platform version string.
+    :supplement:       Optional list of supplemental information.
+"""
     uid: UUID
     name: str
-    description: str
     version: str
     vendor_uid: UUID
     classification: str
@@ -147,17 +181,40 @@ class AgentDescriptor(NamedTuple):
     supplement: Optional[List[Any]] = None
 
 class PeerDescriptor(NamedTuple):
-    """Peer descriptor"""
+    """Peer descriptor.
+
+Attributes:
+    :uid:        Peer ID (UUID).
+    :pid:        Peer process ID (int).
+    :host:       Host name.
+    :supplement: Optional list of supplemental information.
+"""
     uid: UUID
     pid: int
     host: str
     supplement: Optional[List[Any]] = None
 
 class ServiceDescriptor(NamedTuple):
-    """Service descriptor"""
+    """Service descriptor.
+
+Attributes:
+    :agent:          Service agent descriptor.
+    :api:            Service API descriptor.
+    :dependencies:   List of (DependencyType, UUID) tuples.
+    :execution_mode: Preferred execution mode.
+    :service_type:   Type of service.
+    :description:    Text describing the service.
+    :implementation: Locator string for service implementation class.
+    :container:      Locator string for service container class.
+    :client:         Locator string for service client class.
+    :tests:          Locator string for service test class.
+"""
     agent: AgentDescriptor
     api: List[InterfaceDescriptor]
     dependencies: List[Tuple[DependencyType, UUID]]
+    execution_mode: ExecutionMode
+    service_type: ServiceType
+    description: str
     implementation: str
     container: str
     client: str
@@ -175,17 +232,5 @@ class ServiceError(SaturninError):
     "Error raised by service"
 class ClientError(SaturninError):
     "Error raised by Client"
-
-# Functions
-
-def enum_name_only(value: Enum) -> str:
-    "Returns name of enum value without class name."
-    name = str(value)
-    return name[len(value.__class__.__name__)+1:]
-
-def enum_name(value: Enum) -> str:
-    "Returns name of enum value without class name."
-    name = repr(value)
-    return name[len(value.__class__.__name__)+2:-1]
 
 
