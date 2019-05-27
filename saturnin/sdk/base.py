@@ -395,7 +395,7 @@ Raises:
             raise ChannelError(f"Endpoint '{endpoint}' already openned")
         self.socket.bind(endpoint)
         if '*' in endpoint:
-            endpoint = self.socket.LAST_ENDPOINT
+            endpoint = str(self.socket.LAST_ENDPOINT, 'utf8')
         self._mode = SocketMode.BIND
         if not self.endpoints:
             self.on_first_endpoint()

@@ -52,7 +52,7 @@ TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
 TClient = TypeVar('TClient', bound='ServiceClient')
 Token = bytearray
-ZMQAddress = bytes
+ZMQAddress = str
 ZMQAddressList = List[ZMQAddress]
 
 # Enums

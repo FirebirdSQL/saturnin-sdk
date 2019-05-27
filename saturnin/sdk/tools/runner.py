@@ -257,8 +257,8 @@ class Runner:
         "Run tests."
         test_type = 'raw' if raw else 'client'
         print(f"Running {test_type} tests on '{service_name}' service")
-        if service_name in self.name_map:
-            test_service = self.get_service_by_name(service_name)
+        test_service = self.get_service_by_name(service_name)
+        if test_service:
             endpoint = get_best_endpoint(test_service.endpoints, ExecutionMode.THREAD,
                                          test_service.mode)
         else:
