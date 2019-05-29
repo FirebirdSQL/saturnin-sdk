@@ -319,7 +319,7 @@ Token: 1
         "ERROR message"
         expect = """Message type: ERROR
 Flags: NONE
-Type data: 68
+Type data: 132
 Token: 4
 Error code: NOT_IMPLEMENTED
 Relates to: REQUEST

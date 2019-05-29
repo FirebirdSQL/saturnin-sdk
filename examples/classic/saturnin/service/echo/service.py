@@ -253,13 +253,13 @@ All messages must have a valid handle in `type_data`.
                 err = reply.add_error()
                 err.description = str(exc)
             except Exception as exc:
-                reply = self.protocol.create_error_for(msg, ErrorCode.REQUEST_TIMEOUT)
+                reply = self.protocol.create_error_for(msg, ErrorCode.ERROR)
                 err = reply.add_error()
                 err.description = str(exc)
             self.send(reply, session)
         else:
             # ROMAN service not available
-            err_msg = self.protocol.create_error_for(msg, ErrorCode.SERVICE_UNAVAILABLE)
+            err_msg = self.protocol.create_error_for(msg, ErrorCode.FAILED_DEPENDENCY)
             err = err_msg.add_error()
             err.description = "ROMAN service not available"
             self.send(err_msg, session)

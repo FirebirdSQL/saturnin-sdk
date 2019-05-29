@@ -124,20 +124,21 @@ class ErrorCode(IntEnum):
     "FBSP Error Code"
     # Errors indicating that particular request cannot be satisfied
     INVALID_MESSAGE = 1
-    NOT_IMPLEMENTED = 2
+    PROTOCOL_VIOLATION = 2
     BAD_REQUEST = 3
-    INTERNAL_SERVICE_ERROR = 4
-    TOO_MANY_REQUESTS = 5
-    FAILED_DEPENDENCY = 6
-    GONE = 7
-    CONFLICT = 8
-    REQUEST_TIMEOUT = 9
-    NOT_FOUND = 10
-    FORBIDDEN = 11
-    UNAUTHORIZED = 12
-    PAYLOAD_TOO_LARGE = 13
-    INSUFFICIENT_STORAGE = 14
-    PROTOCOL_VIOLATION = 15
+    NOT_IMPLEMENTED = 4
+    ERROR = 5
+    INTERNAL_SERVICE_ERROR = 6
+    REQUEST_TIMEOUT = 7
+    TOO_MANY_REQUESTS = 8
+    FAILED_DEPENDENCY = 9
+    FORBIDDEN = 10
+    UNAUTHORIZED = 11
+    NOT_FOUND = 12
+    GONE = 13
+    CONFLICT = 14
+    PAYLOAD_TOO_LARGE = 15
+    INSUFFICIENT_STORAGE = 16
     # Fatal errors indicating that connection would/should be terminated
     SERVICE_UNAVAILABLE = 2000
     FBSP_VERSION_NOT_SUPPORTED = 2001
