@@ -39,10 +39,10 @@ import logging
 from typing import Any, Sequence
 from zmq import Context
 from saturnin.sdk import fbsp_pb2 as pb
-from saturnin.sdk.base import ChannelManager, RouterChannel, BaseService, BaseServiceImpl
-from saturnin.sdk.types import TService, AgentDescriptor, PeerDescriptor, \
+from .types import TService, AgentDescriptor, PeerDescriptor, \
      InterfaceDescriptor, InvalidMessageError
-from saturnin.sdk.fbsp import validate_welcome_pb
+from .base import ChannelManager, RouterChannel, BaseService, BaseServiceImpl
+from .fbsp import validate_welcome_pb
 
 # Logger
 

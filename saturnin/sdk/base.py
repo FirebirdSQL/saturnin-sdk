@@ -41,7 +41,7 @@ from weakref import proxy
 from time import sleep
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
-from saturnin.sdk.types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
+from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
      TService, TSession, TMessage, ZMQAddressList, ZMQAddress, Origin, SocketMode, Direction, \
      InvalidMessageError, ChannelError, ServiceError
 
@@ -710,10 +710,10 @@ Must create the channel manager with zmq.context and at least one communication 
         """Service finalization.
 
 Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
-is not defined, uses linger 0 for forced shutdown.
+is not defined, uses linger 1 for forced shutdown.
 """
         log.debug("%s.finalize", self.__class__.__name__)
-        self.mngr.shutdown(self.get('shutdown_linger', 0))
+        self.mngr.shutdown(self.get('shutdown_linger', 1))
     def configure(self, svc: TService) -> None:
         "Service configuration. Default implementation does nothing."
     def on_idle(self) -> None:

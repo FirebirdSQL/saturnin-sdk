@@ -352,12 +352,3 @@ class EchoServiceImpl(SimpleServiceImpl):
             self.roman_chn.socket.connect_timeout = 1
             self.msg_handler.roman_address = roman_address
             self.msg_handler.roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
-
-            #roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
-            #try:
-                #roman_cli.open(roman_address)
-                #self.msg_handler.roman_cli = roman_cli
-            #except:
-                ## we can live without ROMAN service, just clean up the ROMAN channel
-                #self.mngr.remove(self.roman_chn)
-                #self.roman_chn.close()

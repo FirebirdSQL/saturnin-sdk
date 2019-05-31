@@ -43,8 +43,8 @@ run in a separate thread or subprocess.
 import logging
 from typing import Optional, Mapping
 from zmq import POLLIN
-from saturnin.sdk.types import TServiceImpl
-from saturnin.sdk.service import Service
+from .types import TServiceImpl
+from .service import Service
 
 # Logger
 

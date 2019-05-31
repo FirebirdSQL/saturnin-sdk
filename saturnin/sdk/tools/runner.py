@@ -41,7 +41,7 @@ import logging
 from typing import Dict, List, Optional
 from uuid import UUID, uuid1
 from os import getpid
-import socket
+from socket import getfqdn
 import platform
 from argparse import ArgumentParser, Action
 import multiprocessing
@@ -79,7 +79,7 @@ def service_run(endpoints, svc_descriptor, ready_event, stop_event, remotes):
     svc_class = load(svc_descriptor.container)
     svc_impl = svc_implementation(stop_event)
     svc_impl.endpoints = endpoints
-    svc_impl.peer = PeerDescriptor(uuid1(), getpid(), socket.getfqdn())
+    svc_impl.peer = PeerDescriptor(uuid1(), getpid(), getfqdn())
     svc = svc_class(svc_impl)
     svc.remotes = remotes.copy()
     svc.initialize()

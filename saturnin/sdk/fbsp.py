@@ -45,10 +45,10 @@ from enum import IntEnum
 from time import monotonic
 import zmq
 from saturnin.sdk import fbsp_pb2 as pb
-from saturnin.sdk.base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
-     get_unique_key, peer_role
-from saturnin.sdk.types import TChannel, TServiceImpl, TSession, TMessage, Token, \
+from .types import TChannel, TServiceImpl, TSession, TMessage, Token, \
      ServiceError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode
+from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
+     get_unique_key, peer_role
 
 PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.0' # firebird.butler.protocol.fbsp
 PROTOCOL_UID = uuid5(NAMESPACE_OID, PROTOCOL_OID)
@@ -283,7 +283,7 @@ Raises:
                                                         MsgType.CANCEL, MsgType.CLOSE)):
             raise InvalidMessageError("Invalid Request Code '%d' for ERROR message"
                                       % (type_data & ERROR_TYPE_MASK))
-    def get_printout(self, with_data = True) -> str:
+    def get_printout(self, with_data=True) -> str:
         """Returns printable, multiline representation of message.
 """
         lines = [f"Message type: {self.message_type.name}",
@@ -1021,6 +1021,12 @@ def exception_for(msg: ErrorMessage) -> ServiceError:
     exc = ServiceError('\n'.join(desc))
     log.debug("exception_for()->%s", exc)
     return exc
+def note_exception(err_msg: ErrorMessage, exc: Exception):
+    """Store information from exception into ErrorMessage."""
+    errdesc = err_msg.add_error()
+    if hasattr(exc, 'code'):
+        errdesc.code = exc.code
+    errdesc.description = str(exc)
 
 class ClientMessageHandler(BaseFBSPlHandler):
     """Base class for Client handlers that process messages from Service.

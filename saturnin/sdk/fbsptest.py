@@ -34,18 +34,18 @@
 """Base module for testing FBSP Services and Clients.
 """
 
-from typing import List, Sequence
+from typing import List
 import os
-import socket
+from socket import getfqdn
 from time import monotonic
 from struct import pack
 from uuid import UUID, uuid1
 import zmq
 import saturnin.sdk
-from saturnin.sdk.types import PeerDescriptor, AgentDescriptor, ClientError, \
+from .types import PeerDescriptor, AgentDescriptor, ClientError, \
      TSession, TClient, TChannel
-from saturnin.sdk.base import ChannelManager, DealerChannel
-from saturnin.sdk.fbsp import Protocol, MsgType, Message, WelcomeMessage, uid2uuid
+from .base import ChannelManager, DealerChannel
+from .fbsp import Protocol, MsgType, Message, WelcomeMessage, uid2uuid
 
 # Functions
 
@@ -56,7 +56,7 @@ def print_title(title, size=80, char='='):
 def print_msg(msg: Message, data_frames: str = None, indent: int = 4):
     "Pretty-print message."
     print('\n'.join(('%s%s' % (' ' * indent, line) for line
-                     in msg.get_printout(with_data = data_frames is None).splitlines())))
+                     in msg.get_printout(with_data=data_frames is None).splitlines())))
     if data_frames is not None:
         print('\n'.join(('%s%s' % (' ' * indent, line) for line in
                          uid2uuid(data_frames.splitlines()))))
@@ -95,7 +95,7 @@ Attributes:
         self.ctx: zmq.Context = context if context else zmq.Context.instance()
         self._cnt = 0
         self.protocol: Protocol = Protocol.instance()
-        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), socket.getfqdn())
+        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), getfqdn())
         self.agent: AgentDescriptor = AgentDescriptor(UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e'),
                                                       "Saturnin SDK test client",
                                                       '1.0',
@@ -136,14 +136,16 @@ Attributes:
         self.interface_id = interface_id
         self.process_welcome(msg)
     def _client_handshake(self, client: TClient):
-        "Client test of ROMAN handshake."
+        "Client handshake test."
         print_session(client.get_session())
     def _run(self, test_names: List[str], *args):
-        "Run test method."
+        "Run test methods."
+        test_names.sort()
         start = monotonic()
         for name in test_names:
             try:
-                print_title(name.replace('_raw_', '').replace('_client_', '').upper())
+                title = '_' + name.lstrip('_')
+                print_title(title.replace('_raw_', '').replace('_client_', '').upper())
                 test = getattr(self, name)
                 test(*args)
             except Exception as exc:

@@ -143,6 +143,21 @@ class ErrorCode(IntEnum):
     SERVICE_UNAVAILABLE = 2000
     FBSP_VERSION_NOT_SUPPORTED = 2001
 
+class State(IntEnum):
+    "General state information."
+    UNKNOWN = 0
+    READY = 1
+    RUNNING = 2
+    WAITING = 3
+    SUSPENDED = 4
+    FINISHED = 5
+    ABORTED = 6
+    # Aliases
+    CREATED = 1
+    BLOCKED = 3
+    STOPPED = 4
+    TERMINATED = 6
+
 # Named tuples
 
 class InterfaceDescriptor(NamedTuple):
@@ -225,6 +240,9 @@ Attributes:
 
 class SaturninError(Exception):
     "General exception raised by Saturnin SDK"
+    def __init__(self, *args, **kwargs):
+        for attr, value in kwargs.items():
+            setattr(self, attr, value)    
 class InvalidMessageError(SaturninError):
     "A formal error was detected in a message"
 class ChannelError(SaturninError):
