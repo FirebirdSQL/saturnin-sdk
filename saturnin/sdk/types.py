@@ -315,7 +315,7 @@ class SaturninError(Exception):
 Uses `kwargs` to set attributes on exception instance.
 """
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args)
         for attr, value in kwargs.items():
             setattr(self, attr, value)
 class InvalidMessageError(SaturninError):
