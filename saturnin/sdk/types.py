@@ -38,7 +38,6 @@
 from typing import TypeVar, NamedTuple, Optional, Any, List, Tuple
 from enum import Enum, IntEnum, Flag, IntFlag, auto
 from uuid import UUID
-#from typing_extensions import Protocol
 from saturnin.sdk import PLATFORM_UID, PLATFORM_VERSION
 
 # Type annotation types
@@ -52,17 +51,16 @@ TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
 TClient = TypeVar('TClient', bound='ServiceClient')
 Token = bytearray
-ZMQAddress = str
-ZMQAddressList = List[ZMQAddress]
 
 # Enums
 
 class Origin(Enum):
     "Origin of received message in protocol context."
     ANY = auto()
-    UNKNOWN = ANY
     SERVICE = auto()
     CLIENT = auto()
+    # Aliases
+    UNKNOWN = ANY
     PROVIDER = SERVICE
     CONSUMER = CLIENT
 
@@ -80,37 +78,76 @@ class Direction(Flag):
 
 class DependencyType(Enum):
     "Service dependency type"
-    OPTIONAL = 0
-    REQUIRED = 1
-    PREFERRED = 2
+    UNKNOWN_DEPTYPE = 0   # Not a valid option, defined only to handle undefined values
+    REQUIRED = 1          # Must be provided, can't run without it
+    PREFERRED = 2         # Should be provided if available, but can run without it
+    OPTIONAL = 3          # Does not need to be available as it can run without it
 
 class ExecutionMode(Enum):
     "Service execution mode"
-    ANY = 0
-    THREAD = 1
-    PROCESS = 2
+    ANY = 0       # No preference
+    THREAD = 1    # Run in thread
+    PROCESS = 2   # Run in separate process
+
+class AddressDomain(IntEnum):
+    "ZMQ address domain"
+    UNKNOWN_DOMAIN = 0 # Not a valid option, defined only to handle undefined values
+    LOCAL = 1          # Within process (inproc)
+    NODE = 2           # On single node (ipc or tcp loopback)
+    NETWORK = 3        # Network-wide (ip address or domain name)
+
+class TransportProtocol(IntEnum):
+    "ZMQ transport protocol"
+    UNKNOWN_PROTOCOL = 0 # Not a valid option, defined only to handle undefined values
+    INPROC = 1
+    IPC = 2
+    TCP = 3
+    PGM = 4
+    EPGM = 5
+    VMCI = 6
+
+class SocketType(IntEnum):
+    "ZMQ socket type"
+    UNKNOWN_TYPE = 0 # Not a valid option, defined only to handle undefined values
+    DEALER = 1
+    ROUTER = 2
+    PUB = 3
+    SUB = 4
+    XPUB = 5
+    XSUB = 6
+    PUSH = 7
+    PULL = 8
+    STREAM = 9
+    PAIR = 10
+
+class SocketUse(IntEnum):
+    "Socket use"
+    UNKNOWN_USE = 0 # Not a valid option, defined only to handle undefined values
+    PRODUCER = 1    # Socket used to provide data to peers
+    CONSUMER = 2    # Socket used to get data prom peers
+    EXCHANGE = 3    # Socket used for bidirectional data exchange
 
 class ServiceType(Enum):
     "Service type"
-    UNKNOWN = 0
-    MEASURING = 1 # Service that collects and pass on data.
-    PROCESSING = 2 # Service that takes data on input, process them and have some data on output
-    PROVIDER = 3 # Service that does things on request
-    CONTROL = 4 # Service that manages other services
+    UNKNOWN_TYPE = 0  # Not a valid option, defined only to handle undefined values
+    DATA_PROVIDER = 1 # Service that collects and pass on data.
+    PROCESSING = 2    # Service that takes data on input, process them and have some data on output
+    EXECUTOR = 3      # Service that does things on request
+    CONTROL = 4       # Service that manages other services
 
 class MsgType(IntEnum):
     "FBSP Message Type"
-    UNKNOWN = 0
-    HELLO = 1  # initial message from client
-    WELCOME = 2  # initial message from service
-    NOOP = 3  # no operation, used for keep-alive & ping purposes
-    REQUEST = 4  # client request
-    REPLY = 5  # service response to client request
-    DATA = 6  # separate data sent by either client or service
+    UNKNOWN = 0 # Not a valid option, defined only to handle undefined values
+    HELLO = 1   # initial message from client
+    WELCOME = 2 # initial message from service
+    NOOP = 3    # no operation, used for keep-alive & ping purposes
+    REQUEST = 4 # client request
+    REPLY = 5   # service response to client request
+    DATA = 6    # separate data sent by either client or service
     CANCEL = 7  # cancel request
-    STATE = 8  # operating state information
-    CLOSE = 9  # sent by peer that is going to close the connection
-    ERROR = 31 # error reported by service
+    STATE = 8   # operating state information
+    CLOSE = 9   # sent by peer that is going to close the connection
+    ERROR = 31  # error reported by service
 
 class MsgFlag(IntFlag):
     "FBSP message flag"
@@ -118,7 +155,6 @@ class MsgFlag(IntFlag):
     ACK_REQ = 1
     ACK_REPLY = 2
     MORE = 4
-
 
 class ErrorCode(IntEnum):
     "FBSP Error Code"
@@ -145,7 +181,7 @@ class ErrorCode(IntEnum):
 
 class State(IntEnum):
     "General state information."
-    UNKNOWN = 0
+    UNKNOWN_STATE = 0
     READY = 1
     RUNNING = 2
     WAITING = 3
@@ -153,10 +189,10 @@ class State(IntEnum):
     FINISHED = 5
     ABORTED = 6
     # Aliases
-    CREATED = 1
-    BLOCKED = 3
-    STOPPED = 4
-    TERMINATED = 6
+    CREATED = READY
+    BLOCKED = WAITING
+    STOPPED = SUSPENDED
+    TERMINATED = ABORTED
 
 # Named tuples
 
@@ -236,13 +272,52 @@ Attributes:
     client: str
     tests: str
 
+# Classes
+
+class ZMQAddress(str):
+    """ZMQ endpoint address.
+
+Descendant from builtin `str` type with additional R/O properties protocol, address and
+domain.
+"""
+    def __get_protocol(self) -> TransportProtocol:
+        if '://' in self:
+            protocol, _ = self.split('://', 1)
+            return TransportProtocol._member_map_[protocol.upper()]
+        return TransportProtocol.UNKNOWN_PROTOCOL
+    def __get_address(self) -> str:
+        if '://' in self:
+            _, address = self.split('://', 1)
+            return address
+        return ''
+    def __get_domain(self) -> AddressDomain:
+        if self.protocol == TransportProtocol.INPROC:
+            return AddressDomain.LOCAL
+        if self.protocol == TransportProtocol.IPC:
+            return AddressDomain.NODE
+        if self.protocol == TransportProtocol.TCP:
+            if self.address.startswith('127.0.0.1') or self.address.lower().startswith('localhost'):
+                return AddressDomain.NODE
+            return AddressDomain.NETWORK
+        if self.protocol == TransportProtocol.UNKNOWN_PROTOCOL:
+            return AddressDomain.UNKNOWN_DOMAIN
+        # PGM, EPGM and VMCI
+        return AddressDomain.NETWORK
+    protocol: TransportProtocol = property(__get_protocol, doc="Transport protocol")
+    address: str = property(__get_address, doc="Address")
+    domain: AddressDomain = property(__get_domain, doc="Address domain")
+
 #  Exceptions
 
 class SaturninError(Exception):
-    "General exception raised by Saturnin SDK"
+    """General exception raised by Saturnin SDK.
+
+Uses `kwargs` to set attributes on exception instance.
+"""
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         for attr, value in kwargs.items():
-            setattr(self, attr, value)    
+            setattr(self, attr, value)
 class InvalidMessageError(SaturninError):
     "A formal error was detected in a message"
 class ChannelError(SaturninError):
@@ -251,5 +326,3 @@ class ServiceError(SaturninError):
     "Error raised by service"
 class ClientError(SaturninError):
     "Error raised by Client"
-
-

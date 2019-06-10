@@ -45,8 +45,8 @@ from enum import IntEnum
 from time import monotonic
 import zmq
 from saturnin.sdk import fbsp_pb2 as pb
-from .types import TChannel, TServiceImpl, TSession, TMessage, Token, \
-     ServiceError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode
+from .types import TChannel, TServiceImpl, TSession, TMessage, Token, State, \
+     ServiceError, ClientError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode
 from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
      get_unique_key, peer_role
 
@@ -60,21 +60,6 @@ HEADER_FMT = '!4xBBH8s'
 FOURCC = b'FBSP'
 VERSION_MASK = 7
 ERROR_TYPE_MASK = 31
-
-# Protocol Buffer Enums
-
-class State(IntEnum):
-    "protobuf State enum as IntEnum"
-    UNKNOWN = pb.UNKNOWN
-    READY = pb.READY
-    RUNNING = pb.RUNNING
-    WAITING = pb.WAITING
-    SUSPENDED = pb.SUSPENDED
-    FINISHED = pb.FINISHED
-    ABORTED = pb.ABORTED
-    CREATED = pb.CREATED
-    BLOCKED = pb.BLOCKED
-    STOPPED = pb.STOPPED
 
 # Logger
 
@@ -163,8 +148,8 @@ def uid2uuid(lines: Sequence) -> List:
 """
     result = []
     for line in lines:
-        s = line.strip()
-        if s.startswith('uid:') or '_uid:' in s:
+        text = line.strip()
+        if text.startswith('uid:') or '_uid:' in text:
             i = line[line.index('"')+1:line.rindex('"')]
             uuid = UUID(bytes=eval(f'b"{i}"'))
             line = line.replace(i, str(uuid))
@@ -833,6 +818,22 @@ Raises:
 
 _FBSP_INSTANCE = Protocol()
 
+def exception_for(msg: ErrorMessage) -> ServiceError:
+    "Returns ServiceError exception from ERROR message."
+    desc = [f"{msg.error_code.name}, relates to {msg.relates_to.name}"]
+    for err in msg.errors:
+        desc.append(f"#{err.code} : {err.description}")
+    exc = ServiceError('\n'.join(desc))
+    log.debug("exception_for()->%s", exc)
+    return exc
+
+def note_exception(err_msg: ErrorMessage, exc: Exception):
+    """Store information from exception into ErrorMessage."""
+    errdesc = err_msg.add_error()
+    if hasattr(exc, 'code'):
+        errdesc.code = exc.code
+    errdesc.description = str(exc)
+
 class BaseFBSPlHandler(BaseMessageHandler):
     """Base class for FBSP message handlers.
 
@@ -951,19 +952,50 @@ Abstract methods:
             _, session = self.sessions.popitem()
             self.send(self.protocol.create_message_for(MsgType.CLOSE, session.token),
                       session)
-            if session.endpoint:
-                self.chn.disconnect(session.endpoint)
+            if session.endpoint_address:
+                self.chn.disconnect(session.endpoint_address)
+    def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
+        """Called by `receive()` when message parsing raises InvalidMessageError.
+
+Sends ERROR/INVALID_MESSAGE back to the sender.
+"""
+        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
+        err_msg = self.protocol.create_error_for(session.greeting, ErrorCode.INVALID_MESSAGE)
+        note_exception(err_msg, exc)
+        self.send(err_msg, session)
+    def on_invalid_greeting(self, routing_id: bytes, exc: InvalidMessageError) -> None:
+        """Called by `receive()` when greeting message parsing raises InvalidMessageError.
+
+Closes connection to the sender.
+"""
+        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
+        if routing_id:
+            self.chn.disconnect(routing_id)
+    def on_dispatch_error(self, session: TSession, msg: TMessage, exc: Exception) -> None:
+        """Called by `receive()` on Exception unhandled by `dispatch()`.
+
+Sends ERROR/INTERNAL_SERVICE_ERROR back to the sender.
+"""
+        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
+        err_msg = self.protocol.create_error_for(msg, ErrorCode.INTERNAL_SERVICE_ERROR)
+        note_exception(err_msg, exc)
+        self.send(err_msg, session)
     def on_ack_reply(self, session: TSession, msg: ReplyMessage) -> None:
-        "Called to handle REPLY/ACK_REPLY message."
+        """Called by `on_reply()` to handle REPLY/ACK_REPLY message.
+
+The default implementation does nothing.
+"""
         log.debug("%s.on_ack_reply", self.__class__.__name__)
     def on_unknown(self, session: TSession, msg: Message) -> None:
         """Default message handler for unrecognized messages.
-Sends ERROR/INVALID_MESSAGE back to the client.
+Sends ERROR/PROTOCOL_VIOLATION back to the client.
 """
         log.debug("%s.on_unknown", self.__class__.__name__)
-        errmsg = self.protocol.create_error_for(session.greeting, ErrorCode.INVALID_MESSAGE)
+        errmsg = self.protocol.create_error_for(session.greeting, ErrorCode.PROTOCOL_VIOLATION)
         err = errmsg.add_error()
-        err.description = "Invalid message, type: %d" % msg.message_type
+        err.description = "The service does not know how to process this message"
         self.send(errmsg, session)
     def on_data(self, session: TSession, msg: DataMessage) -> None:
         "Handle DATA message."
@@ -979,8 +1011,8 @@ If 'endpoint` is set in session, disconnects underlying channel from it. Then di
 the session.
 """
         log.debug("%s.on_close", self.__class__.__name__)
-        if session.endpoint:
-            self.chn.disconnect(session.endpoint)
+        if session.endpoint_address:
+            self.chn.disconnect(session.endpoint_address)
         self.discard_session(session)
     def on_hello(self, session: TSession, msg: HelloMessage) -> None:
         """Handle HELLO message.
@@ -1012,21 +1044,6 @@ Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
         else:
             self.send_protocol_violation(session, msg)
 
-
-def exception_for(msg: ErrorMessage) -> ServiceError:
-    "Returns ServiceError exception from ERROR message."
-    desc = [f"{msg.error_code.name}, relates to {msg.relates_to.name}"]
-    for err in msg.errors:
-        desc.append(f"#{err.code} : {err.description}")
-    exc = ServiceError('\n'.join(desc))
-    log.debug("exception_for()->%s", exc)
-    return exc
-def note_exception(err_msg: ErrorMessage, exc: Exception):
-    """Store information from exception into ErrorMessage."""
-    errdesc = err_msg.add_error()
-    if hasattr(exc, 'code'):
-        errdesc.code = exc.code
-    errdesc.description = str(exc)
 
 class ClientMessageHandler(BaseFBSPlHandler):
     """Base class for Client handlers that process messages from Service.
@@ -1089,6 +1106,21 @@ Abstract methods:
             # we can ignore any send errors
             pass
         self.discard_session(session)
+    def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
+        """Called by `get_response()` when message parsing raises InvalidMessageError.
+
+Raises `ClientError`.
+"""
+        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+                  session.routing_id, exc)
+        raise ClientError("Invalid message received from service") from exc
+    def on_invalid_greeting(self, routing_id: bytes, exc: InvalidMessageError) -> None:
+        """Called by `receive()` when greeting message parsing raises InvalidMessageError.
+
+Raises `ClientError`.
+"""
+        log.error("%s.on_invalid_greeting(%s/%s)", self.__class__.__name__, routing_id, exc)
+        raise ClientError("Invalid greeting received from service") from exc
     def get_response(self, token: Token, timeout: int = None) -> bool:
         """Get reponse from Service.
 
@@ -1104,9 +1136,11 @@ Important:
     - All registered handler methods must store token of handled message into
       `last_token_seen` attribute.
     - Does not work with routed channels, and channels without active session.
+    - Exceptions raised by message or error handlers are propagated to the caller.
 
 Returns:
-    True if response arrived in time, False on timeout.
+    True if response arrives in time, False on timeout (or when called overriden
+    `on_invalid_message()` or `on_invalid_greeting()` handler does not raise an exception).
 """
         log.debug("%s.get_response", self.__class__.__name__)
         assert not self.chn.routed, "Routed channels are not supported"
@@ -1120,8 +1154,16 @@ Returns:
             if event == zmq.POLLIN:
                 zmsg = self.chn.receive()
                 if not session.greeting:
-                    self.protocol.validate(zmsg, peer_role(self.role), greeting=True)
-                msg = self.protocol.parse(zmsg)
+                    try:
+                        self.protocol.validate(zmsg, peer_role(self.role), greeting=True)
+                    except InvalidMessageError as exc:
+                        self.on_invalid_greeting(session.routing_id, exc)
+                        return False
+                try:
+                    msg = self.protocol.parse(zmsg)
+                except InvalidMessageError as exc:
+                    self.on_invalid_message(session, exc)
+                    return False
                 self.dispatch(session, msg)
             if self.last_token_seen and self.last_token_seen in (token, session.greeting.token):
                 return True
@@ -1129,9 +1171,10 @@ Returns:
                 stop = round((monotonic() - start) * 1000) >= timeout
         return False
     def on_unknown(self, session: TSession, msg: Message):
-        "Default message handler for unrecognized messages. Raises `ServiceError`."
+        """Default message handler for unrecognized messages. Raises `ClientError`."""
         log.debug("%s.on_unknown", self.__class__.__name__)
-        raise ServiceError("Unhandled %s message from service" % msg.message_type.name)
+        raise ClientError("The client does not know how to process received %s:%d message" %
+                          (msg.message_type.name, msg.type_data))
     def on_close(self, session: TSession, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 
@@ -1140,21 +1183,21 @@ the session and raises `ServiceError`.
 """
         log.debug("%s.on_close", self.__class__.__name__)
         self.last_token_seen = msg.token
-        if session.endpoint:
-            self.chn.disconnect(session.endpoint)
+        if session.endpoint_address:
+            self.chn.disconnect(session.endpoint_address)
         self.discard_session(session)
-        raise ServiceError("The service has closed the connection.")
+        raise ClientError("The service has closed the connection.")
     def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:
         """Handle WELCOME message.
 
-Save WELCOME message into session.greeting, or raise `ServiceError` for unexpected WELCOME.
+Save WELCOME message into session.greeting, or raise `ClientError` for unexpected WELCOME.
 """
         log.debug("%s.on_welcome", self.__class__.__name__)
         self.last_token_seen = msg.token
         if not session.greeting:
             session.greeting = msg
         else:
-            raise ServiceError("Unexpected WELCOME message")
+            raise ClientError("Unexpected WELCOME message")
     def on_reply(self, session: TSession, msg: ReplyMessage) -> None:
         "Handle Service REPLY message."
         raise NotImplementedError
@@ -1164,4 +1207,3 @@ Save WELCOME message into session.greeting, or raise `ServiceError` for unexpect
     def on_error(self, session: TSession, msg: ErrorMessage) -> None:
         "Handle ERROR message received from Service."
         raise NotImplementedError
-

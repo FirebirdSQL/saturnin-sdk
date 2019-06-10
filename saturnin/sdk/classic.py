@@ -43,14 +43,14 @@ run in a separate thread or subprocess.
 import logging
 from typing import Optional, Mapping
 from zmq import POLLIN
-from .types import TServiceImpl
-from .service import Service
+from .types import TServiceImpl, ZMQAddress
+from .base import BaseService
 
 # Logger
 
 log = logging.getLogger(__name__)
 
-class SimpleService(Service):
+class SimpleService(BaseService):
     """Simple Firebird Butler Service.
 
 Has simple Event-controlled I/O loop using `ChannelManager.wait()`. Incomming messages
@@ -59,13 +59,13 @@ are processed by `receive()` of channel handler.
 Attributes:
     :mngr:    ChannelManager
     :timeout: How long it waits for incoming messages (default 1 sec).
-    :remotes: Dictionary of remote service endpoints [interface_uid:addresss]. Initially empty.
+    :remotes: Dictionary of remote service endpoints [interface_uid:ZMQAddress]. Initially empty.
 """
     def __init__(self, impl: TServiceImpl):
         super().__init__(impl)
         self.timeout: int = 1000  # 1sec
-        self.remotes: Mapping[bytes, str] = {}
-    def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
+        self.remotes: Mapping[bytes, ZMQAddress] = {}
+    def get_provider_address(self, interface_uid: bytes) -> Optional[ZMQAddress]:
         """Return address of interface provider or None if it's not available."""
         return self.remotes.get(interface_uid)
     def validate(self):
@@ -78,7 +78,7 @@ Raises:
         super().validate()
         for uid, address in self.remotes.items():
             assert isinstance(uid, bytes)
-            assert isinstance(address, str)
+            assert isinstance(address, ZMQAddress)
     def run(self):
         """Runs the service until `stop_event` is set.
 """

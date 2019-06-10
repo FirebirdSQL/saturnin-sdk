@@ -43,8 +43,7 @@ Supported requests:
 import logging
 from typing import Any
 from itertools import groupby
-from saturnin.sdk.types import ServiceError, InvalidMessageError, MsgType, ErrorCode, \
-     TSession
+from saturnin.sdk.types import MsgType, ErrorCode, TSession
 from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.sdk.base import BaseChannel, BaseService
 from saturnin.sdk.fbsp import ServiceMessagelHandler, HelloMessage, \
@@ -90,20 +89,6 @@ class RomanMessageHandler(ServiceMessagelHandler):
         self.handlers.update({(MsgType.REQUEST, bb2h(1, RomanRequest.ROMAN)): self.on_roman,
                               MsgType.DATA: self.send_protocol_violation,
                              })
-    def on_invalid_message(self, session: TSession, exc: InvalidMessageError):
-        "Invalid Message event."
-        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
-                  session.routing_id, exc)
-        raise ServiceError("Invalid message") from exc
-    def on_invalid_greeting(self, exc: InvalidMessageError):
-        "Invalid Greeting event."
-        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-        raise ServiceError("Invalid Greeting") from exc
-    def on_dispatch_error(self, session: TSession, exc: Exception):
-        "Exception unhandled by `dispatch()`."
-        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
-                  session.routing_id, exc)
-        raise ServiceError("Unhandled exception") from exc
     def on_hello(self, session: TSession, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
         log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)

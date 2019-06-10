@@ -50,7 +50,7 @@ from time import sleep
 from pkg_resources import iter_entry_points
 import zmq
 from saturnin.sdk.types import PeerDescriptor, ServiceDescriptor, DependencyType, \
-     ExecutionMode
+     ExecutionMode, AddressDomain, ZMQAddress
 from saturnin.sdk.base import load
 
 __VERSION__ = '0.1'
@@ -61,17 +61,17 @@ def protocol_name(address: str) -> str:
     "Returns protocol name from address."
     return address.split(':', 1)[0].lower()
 
-def get_best_endpoint(endpoints, client_mode=ExecutionMode.PROCESS,
-                      service_mode=ExecutionMode.PROCESS) -> Optional[str]:
+def get_best_endpoint(endpoints: List[ZMQAddress], client_mode=ExecutionMode.PROCESS,
+                      service_mode=ExecutionMode.PROCESS) -> Optional[ZMQAddress]:
     "Returns endpoint that uses the best protocol from available options."
-    inproc = [x for x in endpoints if protocol_name(x) == 'inproc']
-    if (inproc and client_mode == ExecutionMode.THREAD and service_mode == ExecutionMode.THREAD):
-        return inproc[0]
-    ipc = [x for x in endpoints if protocol_name(x) == 'ipc']
-    if ipc:
-        return ipc[0]
-    tcp = [x for x in endpoints if protocol_name(x) == 'tcp']
-    return tcp[0]
+    local_addr = [x for x in endpoints if x.domain == AddressDomain.LOCAL]
+    if (local_addr and client_mode == ExecutionMode.THREAD and service_mode == ExecutionMode.THREAD):
+        return local_addr[0]
+    node_addr = [x for x in endpoints if x.domain == AddressDomain.NODE]
+    if node_addr:
+        return node_addr[0]
+    net_addr = [x for x in endpoints if x.domain == AddressDomain.NETWORK]
+    return net_addr[0]
 
 def service_run(endpoints, svc_descriptor, ready_event, stop_event, remotes):
     "Process or thread target code to run the service."
@@ -82,6 +82,7 @@ def service_run(endpoints, svc_descriptor, ready_event, stop_event, remotes):
     svc_impl.peer = PeerDescriptor(uuid1(), getpid(), getfqdn())
     svc = svc_class(svc_impl)
     svc.remotes = remotes.copy()
+    #svc.remotes = dict((key, ZMQAddress(e)) for key, e in remotes.items())
     svc.initialize()
     ready_event.set()
     svc.start()
@@ -107,7 +108,7 @@ class Service:
             self.mode = svc_descriptor.execution_mode
         else:
             self.mode = ExecutionMode.THREAD
-        self.remotes: Dict[str, str] = {}
+        self.remotes: Dict[bytes, ZMQAddress] = {}
         if self.mode in (ExecutionMode.ANY, ExecutionMode.THREAD):
             self.ready_event = threading.Event()
             self.stop_event = threading.Event()
@@ -131,7 +132,7 @@ class Runner:
         service_descriptors = (entry.load() for entry in iter_entry_points('saturnin.service'))
         self.service_registry = dict((sd.agent.uid, sd) for sd in service_descriptors)
         self.name_map = dict((sd.agent.name, sd) for sd in self.service_registry.values())
-        self.remotes: Dict[str, List] = {}
+        self.remote_services: Dict[str, List] = {}
         self.test = None
         self.ctx = zmq.Context.instance()
     def get_service_by_name(self, name: str) -> Service:
@@ -153,17 +154,17 @@ class Runner:
                 if protocol_name(endpoint) not in ['inproc', 'ipc', 'tcp']:
                     raise Exception(f"Unsupported protocol, endpoint '{endpoint}'")
                 if endpoint.lower() == 'inproc':
-                    endpoints.append(f'inproc://{service_name}')
+                    endpoints.append(ZMQAddress(f'inproc://{service_name}'))
                 elif endpoint.lower() == 'ipc':
-                    endpoints.append(f'ipc://{service_name}')
+                    endpoints.append(ZMQAddress(f'ipc://{service_name}'))
                 elif endpoint.lower() == 'tcp':
-                    endpoints.append(f'tcp://127.0.0.1:{self.port}')
+                    endpoints.append(ZMQAddress(f'tcp://127.0.0.1:{self.port}'))
                     self.port += 1
                 else:
-                    endpoints.append(endpoint)
+                    endpoints.append(ZMQAddress(endpoint))
             if not endpoints:
-                endpoints.append(f'inproc://{service_name}')
-            self.remotes[service_name] = endpoints
+                endpoints.append(ZMQAddress(f'inproc://{service_name}'))
+            self.remote_services[service_name] = endpoints
     def load_services(self, services: List, in_thread: Optional[List],
                       in_process: Optional[List]):
         "Prepare services for running."
@@ -176,19 +177,19 @@ class Runner:
                 if protocol_name(endpoint) not in ['inproc', 'ipc', 'tcp']:
                     raise Exception(f"Unsupported protocol, endpoint '{endpoint}'")
                 if endpoint.lower() == 'inproc':
-                    endpoints.append(f'inproc://{service_name}')
+                    endpoints.append(ZMQAddress(f'inproc://{service_name}'))
                 elif endpoint.lower() == 'ipc':
-                    endpoints.append(f'ipc://@{service_name}')
+                    endpoints.append(ZMQAddress(f'ipc://@{service_name}'))
                 elif endpoint.lower() == 'tcp':
-                    endpoints.append(f'tcp://127.0.0.1:{self.port}')
+                    endpoints.append(ZMQAddress(f'tcp://127.0.0.1:{self.port}'))
                     self.port += 1
                 else:
-                    endpoints.append(endpoint)
+                    endpoints.append(ZMQAddress(endpoint))
             if not endpoints:
-                endpoints.append(f'inproc://{service_name}')
+                endpoints.append(ZMQAddress(f'inproc://{service_name}'))
                 if platform.system() == 'Linux':
-                    endpoints.append(f'ipc://@{service_name}')
-                endpoints.append(f'tcp://127.0.0.1:{self.port}')
+                    endpoints.append(ZMQAddress(f'ipc://@{service_name}'))
+                endpoints.append(ZMQAddress(f'tcp://127.0.0.1:{self.port}'))
                 self.port += 1
             mode = ExecutionMode.ANY
             if in_thread is not None:
@@ -209,8 +210,8 @@ class Runner:
                         service.remotes[interface_uid.bytes] = \
                             get_best_endpoint(remote_service.endpoints, service.mode,
                                               remote_service.mode)
-                    elif provider_desciptor.agent.name in self.remotes:
-                        remote_endpoints = self.remotes[provider_desciptor.agent.name]
+                    elif provider_desciptor.agent.name in self.remote_services:
+                        remote_endpoints = self.remote_services[provider_desciptor.agent.name]
                         service.remotes[interface_uid.bytes] = get_best_endpoint(remote_endpoints)
                 if (provider_desciptor is None and dependency_type == DependencyType.REQUIRED):
                     raise Exception(f"Service '{service.name}' requires interface " \
@@ -222,7 +223,7 @@ class Runner:
         if test_service:
             service_descriptor = test_service.svc_descriptor
         else:
-            if test_on in self.remotes:
+            if test_on in self.remote_services:
                 service_descriptor = self.name_map[test_on]
         if not service_descriptor:
             raise Exception(f"Test service '{test_on}' not specified by -s or -r option")
@@ -236,7 +237,8 @@ class Runner:
         for service in self.services.values():
             print("Starting '%s' service %s with endpoints: %s" % (service.name,
                                                                    service.mode.name.lower(),
-                                                                   ', '.join(service.endpoints)))
+                                                                   ', '.join(str(e) for e
+                                                                             in service.endpoints)))
             service.runtime.start()
             if not service.ready_event.wait(5):
                 raise Exception(f"The service {service.name} did not start in time.")
@@ -262,13 +264,11 @@ class Runner:
             endpoint = get_best_endpoint(test_service.endpoints, ExecutionMode.THREAD,
                                          test_service.mode)
         else:
-            endpoint = get_best_endpoint(self.remotes[service_name])
+            endpoint = get_best_endpoint(self.remote_services[service_name])
         if raw:
             self.test.run_raw_tests(endpoint)
         else:
             self.test.run_client_tests(endpoint)
-
-
 
 def main():
     "Main function"

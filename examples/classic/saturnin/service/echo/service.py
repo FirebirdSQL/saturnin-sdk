@@ -51,12 +51,11 @@ import logging
 from typing import Any
 from uuid import uuid1
 from struct import pack, unpack
+from saturnin.sdk.types import SaturninError
 from saturnin.service.echo.api import EchoRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.service.roman import api as roman_api
 from saturnin.service.roman.client import RomanClient
-from saturnin.sdk.types import ServiceError, InvalidMessageError
-from saturnin.sdk.base import BaseChannel, BaseService, \
-     DealerChannel
+from saturnin.sdk.base import BaseChannel, BaseService, DealerChannel
 from saturnin.sdk.service import SimpleServiceImpl
 from saturnin.sdk.fbsp import Session, bb2h, ServiceMessagelHandler, \
      MsgType, MsgFlag, State, ErrorCode, HelloMessage, CancelMessage, DataMessage, \
@@ -90,20 +89,6 @@ class EchoMessageHandler(ServiceMessagelHandler):
         # Optional ROMAN client
         self.roman_cli: RomanClient = None
         self.roman_address = None
-    def on_invalid_message(self, session: Session, exc: InvalidMessageError):
-        "Invalid Message event."
-        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
-                  session.routing_id, exc)
-        raise ServiceError("Invalid message") from exc
-    def on_invalid_greeting(self, exc: InvalidMessageError):
-        "Invalid Greeting event."
-        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-        raise ServiceError("Invalid Greeting") from exc
-    def on_dispatch_error(self, session: Session, exc: Exception):
-        "Exception unhandled by `dispatch()`."
-        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
-                  session.routing_id, exc)
-        raise ServiceError("Unhandled exception") from exc
     def on_hello(self, session: Session, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
         log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)
@@ -252,7 +237,7 @@ All messages must have a valid handle in `type_data`.
                 reply = self.protocol.create_error_for(msg, ErrorCode.REQUEST_TIMEOUT)
                 err = reply.add_error()
                 err.description = str(exc)
-            except Exception as exc:
+            except SaturninError as exc:
                 reply = self.protocol.create_error_for(msg, ErrorCode.ERROR)
                 err = reply.add_error()
                 err.description = str(exc)

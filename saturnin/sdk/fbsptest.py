@@ -42,8 +42,7 @@ from struct import pack
 from uuid import UUID, uuid1
 import zmq
 import saturnin.sdk
-from .types import PeerDescriptor, AgentDescriptor, ClientError, \
-     TSession, TClient, TChannel
+from .types import PeerDescriptor, AgentDescriptor, ClientError, TSession, TClient, TChannel
 from .base import ChannelManager, DealerChannel
 from .fbsp import Protocol, MsgType, Message, WelcomeMessage, uid2uuid
 
@@ -60,6 +59,13 @@ def print_msg(msg: Message, data_frames: str = None, indent: int = 4):
     if data_frames is not None:
         print('\n'.join(('%s%s' % (' ' * indent, line) for line in
                          uid2uuid(data_frames.splitlines()))))
+    print('    ' + '~' * (80 - indent))
+
+def print_data(data: str = None, indent: int = 4):
+    "Pretty-print data."
+    if data is not None:
+        print('\n'.join(('%s%s' % (' ' * indent, line) for line in
+                         uid2uuid(str(data).splitlines()))))
     print('    ' + '~' * (80 - indent))
 
 def print_session(session: TSession):

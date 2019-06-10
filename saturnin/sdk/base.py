@@ -42,7 +42,7 @@ from time import sleep
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
 from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
-     TService, TSession, TMessage, ZMQAddressList, ZMQAddress, Origin, SocketMode, Direction, \
+     TService, TSession, TMessage, ZMQAddress, Origin, SocketMode, Direction, \
      InvalidMessageError, ChannelError, ServiceError
 
 # Constants
@@ -59,7 +59,7 @@ def peer_role(my_role: Origin) -> Origin:
     return Origin.CLIENT if my_role == Origin.SERVICE else Origin.SERVICE
 
 def get_unique_key(dict_: Dict[int, Any]) -> int:
-    """Returns key value that is not in dictionary."""
+    """Returns int key value that is not in dictionary."""
     i = 1
     while i in dict_:
         i += 1
@@ -223,7 +223,7 @@ Attributes:
 """
     def __init__(self, routing_id: bytes):
         self.routing_id: bytes = routing_id
-        self.endpoint: Optional[ZMQAddress] = None
+        self.endpoint_address: Optional[ZMQAddress] = None
 
 
 class BaseProtocol:
@@ -332,7 +332,7 @@ Arguments:
         self._mngr: ChannelManager = None
         self.socket: Socket = None
         self.routed: bool = False
-        self.endpoints: ZMQAddressList = []
+        self.endpoints: List[ZMQAddress] = []
     def __set_mngr_poll(self, value: bool) -> None:
         "Sets mngr_poll."
         if not value:
@@ -541,8 +541,8 @@ Arguments:
     :session: Session object to be discarded.
 """
         log.debug("%s.discard_session(%s)", self.__class__.__name__, session.routing_id)
-        if session.endpoint:
-            self.chn.disconnect(session.endpoint)
+        if session.endpoint_address:
+            self.chn.disconnect(session.endpoint_address)
         del self.sessions[session.routing_id]
     def closing(self) -> None:
         """Called by channel on Close event.
@@ -550,53 +550,54 @@ Arguments:
 The base implementation does nothing.
 """
     def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
-        """Called by `receive()` on Invalid Message event.
+        """Called by `receive()` when message parsing raises InvalidMessageError.
 
 The base implementation does nothing.
 """
         log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
-    def on_invalid_greeting(self, exc: InvalidMessageError) -> None:
-        """Called by `receive()` on Invalid Greeting event.
+    def on_invalid_greeting(self, routing_id: bytes, exc: InvalidMessageError) -> None:
+        """Called by `receive()` when greeting message parsing raises InvalidMessageError.
 
 The base implementation does nothing.
 """
-        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-    def on_dispatch_error(self, session: TSession, exc: Exception) -> None:
+        log.error("%s.on_invalid_greeting(%s/%s)", self.__class__.__name__, routing_id, exc)
+    def on_dispatch_error(self, session: TSession, msg: TMessage, exc: Exception) -> None:
         """Called by `receive()` on Exception unhandled by `dispatch()`.
 
 The base implementation does nothing.
 """
         log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
-    def connect_peer(self, endpoint: str, routing_id: bytes = None) -> TSession:
+    def connect_peer(self, endpoint_address: str, routing_id: bytes = None) -> TSession:
         """Connects to a remote peer and creates a session for this connection.
 
 Arguments:
-    :endpoint:   Endpoint for connection.
-    :routing_id: Channel routing ID (required for routed channels)
+    :endpoint_address: Endpoint for connection.
+    :routing_id:       Channel routing ID (required for routed channels)
 """
-        log.debug("%s.connect_peer(%s,%s)", self.__class__.__name__, endpoint, routing_id)
+        log.debug("%s.connect_peer(%s,%s)", self.__class__.__name__, endpoint_address, routing_id)
         if self.chn.routed:
             assert routing_id
         else:
             routing_id = INTERNAL_ROUTE
-        self.chn.connect(endpoint, routing_id)
+        self.chn.connect(endpoint_address, routing_id)
         session = self.create_session(routing_id)
-        session.endpoint = endpoint
+        session.endpoint_address = endpoint_address
         return session
     def receive(self, zmsg: Optional[List] = None) -> None:
         "Receive and process message from channel."
         if not zmsg:
             zmsg = self.chn.receive()
-        routing_id = zmsg.pop(0) if self.chn.routed else INTERNAL_ROUTE
+        routing_id: bytes = zmsg.pop(0) if self.chn.routed else INTERNAL_ROUTE
         session = self.sessions.get(routing_id)
         if not session:
             if self.protocol.has_greeting():
                 try:
                     self.protocol.validate(zmsg, peer_role(self.role), greeting=True)
                 except InvalidMessageError as exc:
-                    self.on_invalid_greeting(exc)
+                    self.on_invalid_greeting(routing_id, exc)
+                    return
             session = self.create_session(routing_id)
         try:
             msg = self.protocol.parse(zmsg)
@@ -606,7 +607,7 @@ Arguments:
         try:
             self.dispatch(session, msg)
         except Exception as exc:
-            self.on_dispatch_error(session, exc)
+            self.on_dispatch_error(session, msg, exc)
     def send(self, msg: TMessage, session: TSession = None) -> None:
         "Send message through channel."
         zmsg = msg.as_zmsg()
@@ -657,7 +658,6 @@ class BaseServiceImpl:
 
 Attributes:
     :mngr:       ChannelManager instance. NOT INITIALIZED.
-    :endpoints:  List of end points to which the service shall bind itself. Initially empty.
     :stop_event: Event object used to stop the service.
 
 Configuration options (retrieved via `get()`):
@@ -669,7 +669,6 @@ Abstract methods:
     def __init__(self, stop_event: Any):
         self.stop_event = stop_event
         self.mngr: ChannelManager = None
-        self.endpoints: ZMQAddressList = []
     def get(self, name: str, *args) -> Any:
         """Returns value of variable.
 
@@ -697,9 +696,11 @@ Raises:
     :AssertionError: When any issue is detected.
 """
         log.debug("%s.validate", self.__class__.__name__)
-        assert isinstance(self.endpoints, Sequence)
-        for entrypoint in self.endpoints:
-            assert isinstance(entrypoint, str)
+        assert isinstance(self.mngr, ChannelManager), "Channel manager required"
+        assert isinstance(self.mngr.ctx, Context), "Channel manager without ZMQ context"
+        assert self.mngr.channels, "Channel manager without channels"
+        for chn in self.mngr.channels:
+            assert chn.handler, "Channel without handler"
     def initialize(self, svc: TService) -> None:
         """Service initialization.
 
@@ -752,22 +753,17 @@ Raises:
     :AssertionError: When any issue is detected.
 """
         log.debug("%s.validate", self.__class__.__name__)
-        assert isinstance(self.impl.mngr, ChannelManager), "Channel manager required"
-        assert isinstance(self.impl.mngr.ctx, Context), "Channel manager without ZMQ context"
-        assert self.impl.mngr.channels, "Channel manager without channels"
-        for chn in self.impl.mngr.channels:
-            assert chn.handler, "Channel without handler"
+        self.impl.validate()
     def run(self) -> None:
         """Runs the service."""
         raise NotImplementedError
     def initialize(self) -> None:
-        """Runs initialization, configuration and validation of the service.
+        """Runs initialization, configuration and validation of the service implementation.
 
 Raises:
     :ServiceError: When service is not properly initialized and configured.
 """
         log.info("Initialization of the service %s:%s", self.impl.agent.name, self.impl.agent.uid)
-        self.impl.validate()
         self.impl.initialize(self)
         self.impl.configure(self)
         try:

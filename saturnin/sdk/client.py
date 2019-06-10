@@ -38,9 +38,8 @@
 import logging
 from typing import Dict
 from saturnin.sdk import fbsp_pb2 as pb
-#from .base import BaseService, BaseServiceImpl
-from .types import TChannel, TSession, ClientError, AgentDescriptor, \
-     PeerDescriptor, InterfaceDescriptor
+from .types import TChannel, TSession, ClientError, AgentDescriptor, PeerDescriptor, \
+     InterfaceDescriptor
 from .fbsp import MsgType, WelcomeMessage, ClientMessageHandler, \
      validate_hello_pb
 
@@ -121,4 +120,3 @@ Returns:
         hello.peer.CopyFrom(self.hello_df)
         self.send(hello)
         return self.get_response(token, timeout)
-
