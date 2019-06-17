@@ -111,12 +111,10 @@ supplement for peer or agent even if they are defined in descriptors.
         self.welcome_df.service.vendor.uid = agent.vendor_uid.bytes
         self.welcome_df.service.platform.uid = agent.platform_uid.bytes
         self.welcome_df.service.platform.version = agent.platform_version
-        i = 1
         for interface in self.get('api'):
             intf = self.welcome_df.api.add()
-            intf.number = i
+            intf.number = interface.number
             intf.uid = interface.uid.bytes
-            i += 1
 
     instance_id: bytes = property(lambda self: self.welcome_df.instance.uid,
                                   doc="Service instance identification")

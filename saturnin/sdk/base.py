@@ -237,19 +237,16 @@ Class attributes:
    :OID:        string with protocol OID (dot notation). MUST be set in child class.
    :UID:        UUID instance that identifies the protocol. MUST be set in child class.
    :REVISION:   Protocol revision (default 1)
-
-Abstract methods:
-   :validate: Verifies that sequence of ZMQ data frames is a valid protocol message.
-   :has_greeting: Returns True if protocol uses greeting messages.
-   :parse: Parse ZMQ message into protocol message.
-with peer.
 """
     OID: str = '1.3.6.1.4.1.53446.1.5' # firebird.butler.protocol
     UID: UUID = uuid5(NAMESPACE_OID, OID)
     REVISION: int = 1
     def has_greeting(self) -> bool:
-        "Returns True if protocol uses greeting messages."
-        raise NotImplementedError
+        """Returns True if protocol uses greeting messages.
+
+The BaseProtocol always returns False.
+"""
+        return False
     def parse(self, zmsg: Sequence) -> TMessage:
         """Parse ZMQ message into protocol message.
 
@@ -257,12 +254,15 @@ Arguments:
     :zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
 
 Returns:
-    New protocol message instance with parsed ZMQ message.
+    New protocol message instance with parsed ZMQ message. The BaseProtocol implementation
+    returns BaseMessage instance.
 
 Raises:
     :InvalidMessageError: If message is not a valid protocol message.
 """
-        raise NotImplementedError
+        msg = BaseMessage()
+        msg.from_zmsg(zmsg)
+        return msg
     def is_valid(self, zmsg: List, origin: Origin) -> bool:
         """Return True if ZMQ message is a valid protocol message, otherwise returns False.
 
@@ -281,7 +281,7 @@ Arguments:
     def validate(self, zmsg: Sequence, origin: Origin, **kwargs) -> None:
         """Verifies that sequence of ZMQ data frames is a valid protocol message.
 
-This method MUST be overridden in child classes.
+The BaseProtocol implementation does nothing.
 
 Arguments:
     :zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
@@ -291,7 +291,7 @@ Arguments:
 Raises:
     :InvalidMessageError: If message is not a valid protocol message.
 """
-        raise NotImplementedError
+        return
 
 class BaseChannel:
     """Base Class for ZeroMQ communication channel (socket).
@@ -314,12 +314,15 @@ R/O attributes:
 Abstract methods:
    :create_socket: Create ZMQ socket for this channel.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0):
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK):
         """Base Class for ZeroMQ communication channel (socket).
 
 Arguments:
     :identity: Identity for ZMQ socket.
-    :mngr_poll: True to register into Channel Manager `Poller`.
+    :mngr_poll: True to register into Channel Manager `Poller`. [default=True]
+    :send_timeout: Timeout for send operation on the socket. [default=0]
+    :flags: Flags for send() and receive(). [default=NOBLOCK]
 """
         self.socket_type: int = None
         self.direction: Direction = Direction.BOTH
@@ -333,6 +336,7 @@ Arguments:
         self.socket: Socket = None
         self.routed: bool = False
         self.endpoints: List[ZMQAddress] = []
+        self.flags = flags
     def __set_mngr_poll(self, value: bool) -> None:
         "Sets mngr_poll."
         if not value:
@@ -467,12 +471,12 @@ Raises:
         "Send ZMQ multipart message."
         log.debug("%s.send", self.__class__.__name__)
         assert Direction.OUT in self.direction, "Call to send() on RECEIVE-only channel"
-        self.socket.send_multipart(zmsg, NOBLOCK)
+        self.socket.send_multipart(zmsg, self.flags)
     def receive(self) -> List:
         "Receive ZMQ multipart message."
         log.debug("%s.receive", self.__class__.__name__)
         assert Direction.IN in self.direction, "Call to receive() on SEND-only channel"
-        return self.socket.recv_multipart(NOBLOCK)
+        return self.socket.recv_multipart(self.flags)
     def close(self, *args) -> None:
         """Permanently closes the channel by closing the ZMQ scoket.
 
@@ -783,6 +787,7 @@ when run() finishes.
         finally:
             self.impl.finalize(self)
         log.info("Service %s:%s stopped", self.impl.agent.name, self.impl.agent.uid)
+    ready: bool = property(lambda self: self.__ready, doc="True if service is ready to start")
 
 # Channels for individual ZMQ socket types
 class DealerChannel(BaseChannel):

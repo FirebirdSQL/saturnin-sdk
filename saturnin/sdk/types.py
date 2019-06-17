@@ -203,11 +203,13 @@ Attributes:
     :uid:      Interface ID (UUID).
     :name:     Interface name.
     :revision: Interface revision number.
+    :number:   Interface Identification Number assigned by Service
     :requests: Enum for interface FBSP request codes.
 """
     uid: UUID
     name: str
     revision: int
+    number: int
     requests: IntEnum
 
 class AgentDescriptor(NamedTuple):

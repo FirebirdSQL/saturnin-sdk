@@ -80,7 +80,7 @@ SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
                                 VENDOR_UID,
                                 "example/echo"
                                )
-SERVICE_INTERFACE = InterfaceDescriptor(ECHO_INTERFACE_UID, "Echo service API", 1,
+SERVICE_INTERFACE = InterfaceDescriptor(ECHO_INTERFACE_UID, "Echo service API", 1, 1,
                                         EchoRequest)
 SERVICE_API = [SERVICE_INTERFACE]
 

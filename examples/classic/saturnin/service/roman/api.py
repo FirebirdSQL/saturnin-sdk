@@ -67,7 +67,7 @@ SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
                                 "example/roman"
                                )
 
-SERVICE_INTERFACE = InterfaceDescriptor(ROMAN_INTERFACE_UID, "Roman service API", 1,
+SERVICE_INTERFACE = InterfaceDescriptor(ROMAN_INTERFACE_UID, "Roman service API", 1, 1,
                                         RomanRequest)
 SERVICE_API = [SERVICE_INTERFACE]
 

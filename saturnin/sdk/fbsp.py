@@ -982,7 +982,7 @@ Sends ERROR/INTERNAL_SERVICE_ERROR back to the sender.
         err_msg = self.protocol.create_error_for(msg, ErrorCode.INTERNAL_SERVICE_ERROR)
         note_exception(err_msg, exc)
         self.send(err_msg, session)
-    def on_ack_reply(self, session: TSession, msg: ReplyMessage) -> None:
+    def on_ack_reply(self, session: TSession, msg: TMessage) -> None:
         """Called by `on_reply()` to handle REPLY/ACK_REPLY message.
 
 The default implementation does nothing.
