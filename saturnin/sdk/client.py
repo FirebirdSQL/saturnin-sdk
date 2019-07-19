@@ -70,7 +70,11 @@ Abstract methods:
     def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:
         """Handle WELCOME message.
 
-Save WELCOME message into session.greeting, or raise `ServiceError` for unexpected WELCOME.
+Save WELCOME message into session.greeting, notes number assigned by service to used
+interface and updates message handlers.
+
+Raises:
+    :ClientError: For unexpected WELCOME, or when service does not support required interface.
 """
         log.debug("%s.on_welcome", self.__class__.__name__)
         super().on_welcome(session, msg)
@@ -92,7 +96,7 @@ Save WELCOME message into session.greeting, or raise `ServiceError` for unexpect
     def get_handlers(self, api_number: int) -> Dict:
         """Returns Dict for mapping FBSP messages sent by service to handler methods."""
         raise NotImplementedError()
-    def open(self, endpoint: str, timeout: int = 1000) -> bool:
+    def open(self, endpoint: str, timeout: int = 1000) -> None:
         """Opens connection to service.
 
 Arguments:
@@ -100,11 +104,11 @@ Arguments:
     :timeout:  The timeout (in milliseconds) to wait for response from service. Value None
     means no time limit. [Defailt: 1000]
 
-Returns:
+Raises:
     True if service was sucessfuly connected in specified time limit.
 """
         log.debug("%s.open", self.__class__.__name__)
-        self.connect_peer(endpoint)
+        session = self.connect_peer(endpoint)
         token = self.new_token()
         hello = self.protocol.create_message_for(MsgType.HELLO, token)
         self.hello_df.instance.uid = self.peer.uid.bytes
@@ -118,5 +122,18 @@ Returns:
         self.hello_df.client.platform.version = self.agent.platform_version
         validate_hello_pb(self.hello_df)
         hello.peer.CopyFrom(self.hello_df)
-        self.send(hello)
-        return self.get_response(token, timeout)
+        try:
+            self.send(hello, session, defer=False)
+            if not self.get_response(token, timeout):
+                raise ClientError("Connection to service failed")
+        except Exception:
+            self.discard_session(session)
+            raise
+    def close(self):
+        "Close connection to Service."
+        log.debug("%s.close", self.__class__.__name__)
+        super().close()
+        self.interface_id = None
+    def is_connected(self) -> bool:
+        """Returns True if client has active connection to the Service."""
+        return self.interface_id is not None

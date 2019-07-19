@@ -282,6 +282,9 @@ class ZMQAddress(str):
 Descendant from builtin `str` type with additional R/O properties protocol, address and
 domain.
 """
+    def __init__(self, value):
+        if self.protocol == TransportProtocol.UNKNOWN_PROTOCOL:
+            raise ValueError("Protocol specification required.")
     def __get_protocol(self) -> TransportProtocol:
         if '://' in self:
             protocol, _ = self.split('://', 1)

@@ -332,7 +332,7 @@ class EchoServiceImpl(SimpleServiceImpl):
         # Channel to ROMAN service
         roman_address = svc.get_provider_address(roman_api.ROMAN_INTERFACE_UID.bytes)
         if roman_address is not None:
-            self.roman_chn = DealerChannel(uuid1().bytes, False)
+            self.roman_chn = DealerChannel(self.instance_id.hex().encode('ascii'), False)
             self.mngr.add(self.roman_chn)
             self.roman_chn.socket.connect_timeout = 1
             self.msg_handler.roman_address = roman_address

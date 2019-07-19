@@ -162,12 +162,12 @@ class Message(BaseMessage):
     """Base FBSP Message.
 
 Attributes:
-    :msg_type:  Type of message (int)
-    :header:    FBSP control frame (bytes)
-    :flasg:     flags (int)
-    :type_data: Data associated with message (int)
-    :token:     Message token (bytearray)
-    :data:      List of data frames
+    :message_type: Type of message (int)
+    :header:       FBSP control frame (bytes)
+    :flasg:        flags (int)
+    :type_data:    Data associated with message (int)
+    :token:        Message token (bytearray)
+    :data:         List of data frames
 """
     def __init__(self):
         super().__init__()
@@ -950,10 +950,14 @@ Abstract methods:
         log.debug("%s.close", self.__class__.__name__)
         while self.sessions:
             _, session = self.sessions.popitem()
-            self.send(self.protocol.create_message_for(MsgType.CLOSE, session.token),
-                      session)
-            if session.endpoint_address:
-                self.chn.disconnect(session.endpoint_address)
+            try:
+                if not session.messages:
+                    self.send(self.protocol.create_message_for(MsgType.CLOSE, session.token),
+                              session, False) # do not defer this message
+            except:
+                # channel could be already closed from other side, as we are closing it too
+                # we can ignore any send errors
+                pass
     def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
         """Called by `receive()` when message parsing raises InvalidMessageError.
 
@@ -970,8 +974,6 @@ Sends ERROR/INVALID_MESSAGE back to the sender.
 Closes connection to the sender.
 """
         log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-        if routing_id:
-            self.chn.disconnect(routing_id)
     def on_dispatch_error(self, session: TSession, msg: TMessage, exc: Exception) -> None:
         """Called by `receive()` on Exception unhandled by `dispatch()`.
 
@@ -1011,8 +1013,6 @@ If 'endpoint` is set in session, disconnects underlying channel from it. Then di
 the session.
 """
         log.debug("%s.on_close", self.__class__.__name__)
-        if session.endpoint_address:
-            self.chn.disconnect(session.endpoint_address)
         self.discard_session(session)
     def on_hello(self, session: TSession, msg: HelloMessage) -> None:
         """Handle HELLO message.
@@ -1098,14 +1098,17 @@ Abstract methods:
         "Close connection to Service."
         log.debug("%s.close", self.__class__.__name__)
         session = self.get_session()
-        try:
-            self.send(self.protocol.create_message_for(MsgType.CLOSE,
-                                                       session.greeting.token), session)
-        except:
-            # channel could be already closed from other side, as we are closing it too
-            # we can ignore any send errors
-            pass
-        self.discard_session(session)
+        if session:
+            try:
+                if not session.messages:
+                    self.send(self.protocol.create_message_for(MsgType.CLOSE,
+                                                               session.greeting.token),
+                              session, False) # do not defer this message
+            except:
+                # channel could be already closed from other side, as we are closing it too
+                # we can ignore any send errors
+                pass
+            self.discard_session(session)
     def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
         """Called by `get_response()` when message parsing raises InvalidMessageError.
 
@@ -1141,6 +1144,10 @@ Important:
 Returns:
     True if response arrives in time, False on timeout (or when called overriden
     `on_invalid_message()` or `on_invalid_greeting()` handler does not raise an exception).
+
+Raises:
+    :ClientError: When invalid greeting or message is received from service. Also `on_*`
+    message handlers may raise exceptions.
 """
         log.debug("%s.get_response", self.__class__.__name__)
         assert not self.chn.routed, "Routed channels are not supported"
@@ -1183,8 +1190,6 @@ the session and raises `ServiceError`.
 """
         log.debug("%s.on_close", self.__class__.__name__)
         self.last_token_seen = msg.token
-        if session.endpoint_address:
-            self.chn.disconnect(session.endpoint_address)
         self.discard_session(session)
         raise ClientError("The service has closed the connection.")
     def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:

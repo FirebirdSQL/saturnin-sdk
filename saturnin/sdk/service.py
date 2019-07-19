@@ -128,8 +128,9 @@ Attributes:
     :svc_chn: Inbound RouterChannel
 
 Configuration options (retrieved via `get()`):
-    :shutdown_linger:  (int) ZMQ Linger value used on shutdown [Default 0].
+    :shutdown_linger:  (int) ZMQ Linger value used on shutdown [Default 0]
     :zmq_context: ZMQ context [default: Context.instance()]
+    :sock_opts: (dict) ZMQ socket options for main service (router) channel [default: None]
 """
     def __init__(self, stop_event: Any):
         super().__init__(stop_event)
@@ -143,7 +144,8 @@ Configuration options (retrieved via `get()`):
         super().initialize(svc)
         log.debug("%s.initialize", self.__class__.__name__)
         self.mngr = ChannelManager(self.get('zmq_context', Context.instance()))
-        self.svc_chn = RouterChannel(self.instance_id)
+        self.svc_chn = RouterChannel(self.instance_id.hex().encode('ascii'),
+                                     sock_opts=self.get('sock_opts', None))
         self.mngr.add(self.svc_chn)
     def configure(self, svc: TService) -> None:
         """Performs next actions:

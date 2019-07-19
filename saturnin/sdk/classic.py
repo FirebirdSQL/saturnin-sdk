@@ -81,9 +81,18 @@ Raises:
             assert isinstance(address, ZMQAddress)
     def run(self):
         """Runs the service until `stop_event` is set.
+
+The I/O loop has next steps:
+
+- It runs deferred ChannelManager tasks (typically resend operations). By default it runs
+one deferred task per loop cycle, unless ServiceImpl-defined `all_deferred` is True.
+- Uses ChannelManager.wait(timeout) for messages.
+- One message per channel is received per loop cycle.
+- If there are no messages on input, runs ServiceImpl.on_idle()
 """
         log.info("Service %s:%s started", self.impl.agent.name, self.impl.agent.uid)
         while not self.impl.stop_event.is_set():
+            self.impl.mngr.process_deferred(self.impl.get('all_deferred', False))
             events = self.impl.mngr.wait(self.timeout)
             if events:
                 for channel, event in events.items():

@@ -35,11 +35,11 @@
 
 import sys
 import logging
-from typing import Any, Dict, List, Sequence, ValuesView, Optional
+from typing import Any, Dict, List, Tuple, Callable, Sequence, ValuesView, Optional
 from uuid import uuid5, NAMESPACE_OID, UUID
 from weakref import proxy
-from time import sleep
-from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError
+from time import sleep, monotonic
+from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError, EAGAIN, EHOSTUNREACH
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
 from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
      TService, TSession, TMessage, ZMQAddress, Origin, SocketMode, Direction, \
@@ -81,7 +81,13 @@ Arguments:
 
 # Manager for ZMQ channels
 class ChannelManager:
-    "Manager of ZeroMQ communication channels."
+    """Manager of ZeroMQ communication channels.
+
+Attributes:
+    :ctx:      ZMQ Context instance.
+    :channels: Channels associated with manager
+    :deferred: List with deferred work. Contains tuples with (Callable, List).
+"""
     def __init__(self, context: Context):
         """Manager of ZeroMQ communication channels.
 
@@ -89,9 +95,31 @@ Arguments:
     :context: ZMQ Context instance.
 """
         self.ctx: Context = context
+        self.deferred: List[Tuple[Callable, List]] = []
         self._ch: Dict[int, TChannel] = {}
         self._poller: Poller = Poller()
         self.__chmap: Dict[Socket, TChannel] = {}
+    def defer(self, callback: Callable, *args) -> None:
+        """Adds callback with arguments into stack with deferred work."""
+        #log.info('Deferred work: %s', args)
+        self.deferred.append((callback, args))
+    def is_deferred(self, callback: Callable, *args) -> bool:
+        """Returns true if callback with arguments is already registered."""
+        return (callback, args) in self.deferred
+    def process_deferred(self, process_all=False) -> None:
+        """Process one or all deferred callback(s). All processed tasks are removed from
+`deferred` queue.
+"""
+        if self.deferred:
+            if process_all:
+                que = self.deferred
+                self.deferred = []
+                while que:
+                    callback, args = que.pop(0)
+                    callback(*args)
+            else:
+                callback, args = self.deferred.pop(0)
+                callback(*args)
     def create_socket(self, socket_type: int, **kwargs) -> Socket:
         """Create new ZMQ socket.
 
@@ -122,14 +150,14 @@ Arguments:
         return channel.socket in self._poller._map
     def register(self, channel: TChannel) -> None:
         """Register channel in Poller."""
-        log.debug("%s.register", self.__class__.__name__)
         if not self.is_registered(channel):
+            log.debug("%s.register", self.__class__.__name__)
             self._poller.register(channel.socket, POLLIN)
             self.__chmap[channel.socket] = channel
     def unregister(self, channel: TChannel) -> None:
         """Unregister channel from Poller."""
-        log.debug("%s.unregister", self.__class__.__name__)
         if self.is_registered(channel):
+            log.debug("%s.unregister", self.__class__.__name__)
             self._poller.unregister(channel.socket)
             del self.__chmap[channel.socket]
     def wait(self, timeout: Optional[int] = None) -> Dict:
@@ -180,7 +208,7 @@ Arguments:
     :frames: Sequence of frames that should be deserialized.
 """
         self.data = list(frames)
-    def as_zmsg(self) -> Sequence:
+    def as_zmsg(self) -> List:
         """Returns message as sequence of ZMQ data frames."""
         zmsg = []
         zmsg.extend(self.data)
@@ -220,11 +248,34 @@ class BaseSession:
 Attributes:
     :routing_id: (bytes) Channel routing ID
     :endpoint: (str) Connected service endpoint address, if any
+    :pending_since: (float) Value is either None or monotonic() time of first unsuccessful
+        send operation (i.e. notes time of suspension and start of
+        `BaseMessageHandler.resume_timeout` period).
+    :messages: (list) List of deferred messages.
 """
     def __init__(self, routing_id: bytes):
         self.routing_id: bytes = routing_id
         self.endpoint_address: Optional[ZMQAddress] = None
-
+        self.pending_since: Optional[float] = None
+        self.messages: List[BaseMessage] = []
+    def send_later(self, zmsg: List) -> None:
+        """Add ZMQ message to deferred queue."""
+        log.info('Send later queue: %s', len(self.messages))
+        if not self.messages:
+            self.pending_since = monotonic()
+        self.messages.append(zmsg)
+    def get_next_message(self) -> List:
+        """Returns next deferred message."""
+        return self.messages[0]
+    def is_suspended(self) -> bool:
+        """Returns True if session is suspended (waiting for successful resend of queued
+messages)."""
+        return self.pending_since is not None
+    def message_sent(self) -> None:
+        """Notify session that first queued message was successfully sent, so it could be
+removed from queue. Also resets timeout for resend."""
+        self.messages.pop(0)
+        self.pending_since = None
 
 class BaseProtocol:
     """Base class for protocol.
@@ -304,7 +355,10 @@ Attributes:
     :handler:     Message handler used to process messages received from peer(s).
     :uid:         Unique channel ID used by channel manager.
     :mngr_poll:   True if channel should register its socket into manager Poller.
+    :send_timeout:Timeout for send operations.
     :endpoints:   List of binded/connected endpoints.
+    :flags:       ZMQ flags used for send() and receive().
+    :sock_opts:   Dictionary with socket options that should be set after socket creation.
 
 R/O attributes:
     :mode:        BIND/CONNECT mode for socket.
@@ -315,7 +369,7 @@ Abstract methods:
    :create_socket: Create ZMQ socket for this channel.
 """
     def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
-                 flags: int = NOBLOCK):
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
         """Base Class for ZeroMQ communication channel (socket).
 
 Arguments:
@@ -323,6 +377,7 @@ Arguments:
     :mngr_poll: True to register into Channel Manager `Poller`. [default=True]
     :send_timeout: Timeout for send operation on the socket. [default=0]
     :flags: Flags for send() and receive(). [default=NOBLOCK]
+    :sock_opts: Dictionary with socket options that should be set after socket creation.
 """
         self.socket_type: int = None
         self.direction: Direction = Direction.BOTH
@@ -337,6 +392,7 @@ Arguments:
         self.routed: bool = False
         self.endpoints: List[ZMQAddress] = []
         self.flags = flags
+        self.sock_opts = sock_opts
     def __set_mngr_poll(self, value: bool) -> None:
         "Sets mngr_poll."
         if not value:
@@ -351,8 +407,8 @@ Arguments:
     def drop_socket(self) -> None:
         "Unconditionally drops the ZMQ socket."
         try:
-            if self.socket:
-                self.socket.close()
+            if self.socket and not self.socket.closed:
+                self.socket.close(0)
         except ZMQError:
             pass
         self.socket = None
@@ -361,12 +417,16 @@ Arguments:
 
 Called when channel is assigned to manager.
 """
-        log.debug("%s.create_socket [%s/%s]", self.__class__.__name__, self.socket_type,
+        log.debug("%s.create_socket [%s as %s]", self.__class__.__name__, self.socket_type,
                   self.identity)
         self.socket = self.manager.create_socket(self.socket_type)
         if self._identity:
             self.socket.identity = self._identity
+        self.socket.immediate = 1
         self.socket.sndtimeo = self._send_timeout
+        if self.sock_opts:
+            for name, value in self.sock_opts.items():
+                setattr(self.socket, name, value)
     def on_first_endpoint(self) -> None:
         """Called after the first endpoint is successfully opened.
 
@@ -499,7 +559,6 @@ Arguments:
     send_timeout: int = property(lambda self: self._send_timeout, __set_send_timeout,
                                  doc="Timeout for send operations")
 
-
 class BaseMessageHandler:
     """Base class for message handlers.
 
@@ -508,24 +567,29 @@ Attributes:
     :role: Peer role
     :sessions: Dictionary of active sessions, key=routing_id
     :protocol: Protocol used [default: BaseProtocol]
+    :resume_timeout: Time limit in seconds for how long session could be suspended before
+        it's cancelled [default: 10].
 
 Abstract methods:
     :dispatch: Process message received from peer.
 """
     def __init__(self, chn: TChannel, role: Origin,
-                 session_class: TSession = BaseSession):
+                 session_class: TSession = BaseSession, resume_timeout: int = 10):
         """Message handler initialization.
 
 Arguments:
     :chn: Channel to be handled.
     :role: The role that the handler performs.
-    :session_class: Class for session objects.
+    :session_class: Class for session objects [default: BaseSession].
+    :resume_timeout: Time limit in seconds for how long session could be suspended before
+        it's cancelled [default: 10].
 """
         self.chn: TChannel = chn
         chn.handler = self
         self.__role: Origin = role
         self.sessions: Dict[bytes, BaseSession] = {}
         self.protocol: TProtocol = BaseProtocol()
+        self.resume_timeout = resume_timeout
         self.__scls: TSession = session_class
     def create_session(self, routing_id: bytes) -> TSession:
         """Session object factory."""
@@ -548,6 +612,22 @@ Arguments:
         if session.endpoint_address:
             self.chn.disconnect(session.endpoint_address)
         del self.sessions[session.routing_id]
+    def suspend_session(self, session: TSession) -> None:
+        """Called by send() when message must be deferred for later delivery.
+
+Default implementation does nothing. Could be overriden to disable workers, etc.
+"""
+    def resume_session(self, session: TSession) -> None:
+        """Called by __resend() when deferred message is sent successfully.
+
+Default implementation does nothing. Could be overriden to enable workers, etc.
+"""
+    def cancel_session(self, session: TSession) -> None:
+        """Called by __resend() when attempts to send the message keep failing over specified
+time threashold.
+
+Default implementation discards the session. Could be overriden to drop workers, etc."""
+        self.discard_session(session)
     def closing(self) -> None:
         """Called by channel on Close event.
 
@@ -612,13 +692,97 @@ Arguments:
             self.dispatch(session, msg)
         except Exception as exc:
             self.on_dispatch_error(session, msg, exc)
-    def send(self, msg: TMessage, session: TSession = None) -> None:
-        "Send message through channel."
+    def send(self, msg: TMessage, session: TSession = None, defer: bool = True) -> bool:
+        """Send message through channel.
+
+Arguments:
+    :msg: Message to be send.
+    :session: Session this message belongs to. Required for routed channels [default: None].
+    :defer: Whether message should be deferred when send is unsuccessful [default: True].
+        Ignored if session is not provided.
+
+When `defer` is True and send fails with EAGAIN, the message is queued into session and
+scheduled for retry. If send fails with EHOSTUNREACH, the session is cancelled via
+:meth:`cancel_session()`.
+
+Returns:
+    True when message was successfully sent. False if message was deferred for later delivery
+    or session was cancelled.
+
+Raises:
+    :ZMQError: If send fails and `defer` is False, or `defer` is True and error is
+               not EAGAIN/EHOSTUNREACH.
+"""
+        if not session:
+            defer = False
+        result = False
         zmsg = msg.as_zmsg()
         if self.chn.routed:
             assert session
             zmsg.insert(0, session.routing_id)
-        self.chn.send(zmsg)
+        if session and session.messages:
+            session.send_later(zmsg)
+        else:
+            try:
+                self.chn.send(zmsg)
+            except ZMQError as err:
+                if err.errno == EAGAIN and defer:
+                    log.debug('Send failed, suspending session')
+                    session.send_later(zmsg)
+                    self.chn.manager.defer(self.__retry_send, session)
+                    self.suspend_session(session)
+                elif err.errno == EHOSTUNREACH and defer:
+                    log.warning('Send failed, host unreachable')
+                    if session:
+                        self.cancel_session(session)
+                else:
+                    raise err
+            else:
+                result = True
+        return result
+    def __retry_send(self, session: TSession = None) -> None:
+        """Resend previously deferred messages through channel. If send fails with EAGAIN,
+it's scheduled for another try, or session is cancelled if time from last failed attempt
+exceeds `resume_timeout`.
+
+Session is cancelled if send fails with other error than EAGAIN.
+
+Session is resumed When first message is sent successfully, and suspended again if any
+subsequent send fails.
+"""
+        success = True
+        cancel = False
+        while success and session.messages:
+            zmsg = session.get_next_message()
+            log.debug('Resending message %s', zmsg)
+            try:
+                self.chn.send(zmsg)
+            except ZMQError as err:
+                success = False
+                if err.errno == EAGAIN:
+                    delta = monotonic() - session.pending_since
+                    log.debug('Send retry failed, to[%s], p[%s], d[%s]',
+                              self.resume_timeout, session.pending_since, delta)
+                    if delta >= self.resume_timeout:
+                        cancel = True
+                else:
+                    log.error("Send retry failed, errno: %s, %s", err.errno, err.strerror)
+                    cancel = True
+            else:
+                session.message_sent()
+                log.debug('Pending messages: %s', len(session.messages))
+                if not session.messages:
+                    log.debug('Resuming session')
+                    self.resume_session(session)
+        if session.messages and not cancel:
+            self.chn.manager.defer(self.__retry_send, session)
+            if not session.is_suspended():
+                log.debug('Send retry failed, suspending session')
+                session.pending_since = monotonic()
+                self.suspend_session(session)
+        if cancel:
+            log.debug('Canceling session')
+            self.cancel_session(session)
     def dispatch(self, session: TSession, msg: TMessage) -> None:
         """Process message received from peer.
 
@@ -630,7 +794,7 @@ Arguments:
 """
         raise NotImplementedError
     def is_active(self) -> bool:
-        "Returns True if habndler has any active session (connection)."
+        "Returns True if handler has any active session (connection)."
         return bool(self.sessions)
 
     role: Origin = property(lambda self: self.__role,
@@ -793,39 +957,44 @@ when run() finishes.
 class DealerChannel(BaseChannel):
     """Communication channel over DEALER socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = DEALER
 
 class PushChannel(BaseChannel):
     """Communication channel over PUSH socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = PUSH
         self.direction = Direction.OUT
 
 class PullChannel(BaseChannel):
     """Communication channel over PULL socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = PULL
         self.direction = Direction.IN
 
 class PubChannel(BaseChannel):
     """Communication channel over PUB socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = PUB
         self.direction = Direction.OUT
 
 class SubChannel(BaseChannel):
     """Communication channel over SUB socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = SUB
         self.direction = Direction.IN
     def subscribe(self, topic: bytes):
@@ -838,8 +1007,9 @@ class SubChannel(BaseChannel):
 class XPubChannel(BaseChannel):
     """Communication channel over XPUB socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = XPUB
     def create_socket(self):
         "Create XPUB socket for this channel."
@@ -849,8 +1019,9 @@ class XPubChannel(BaseChannel):
 class XSubChannel(BaseChannel):
     """Communication channel over XSUB socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = XSUB
     def subscribe(self, topic: bytes):
         "Subscribe to topic"
@@ -862,15 +1033,17 @@ class XSubChannel(BaseChannel):
 class PairChannel(BaseChannel):
     """Communication channel over PAIR socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = PAIR
 
 class RouterChannel(BaseChannel):
     """Communication channel over ROUTER socket.
 """
-    def __init__(self, identity: bytes, mngr_poll: bool = True):
-        super().__init__(identity, mngr_poll)
+    def __init__(self, identity: bytes, mngr_poll: bool = True, send_timeout: int = 0,
+                 flags: int = NOBLOCK, sock_opts: Optional[Dict[str, Any]] = None):
+        super().__init__(identity, mngr_poll, send_timeout, flags, sock_opts)
         self.socket_type = ROUTER
         self.routed = True
     def create_socket(self):

@@ -171,7 +171,7 @@ Attributes:
                                                    if name.startswith('raw_')]
         test_list.insert(0, '_raw_handshake')
         socket = self.ctx.socket(zmq.DEALER)
-        socket.identity = b'runner'
+        socket.identity = b'test-runner:' + self.peer.uid.hex.encode('ascii')
         socket.connect(endpoint)
         self._run(test_list, socket)
         msg = self.protocol.create_message_for(MsgType.CLOSE, self.get_token())
@@ -184,7 +184,7 @@ Attributes:
         test_list.insert(0, '_client_handshake')
         mngr = ChannelManager(self.ctx)
         try:
-            chn = DealerChannel(b'runner', False)
+            chn = DealerChannel(b'test-runner:' + self.peer.uid.hex.encode('ascii'), False)
             mngr.add(chn)
             with self.create_client(chn) as client:
                 client.open(endpoint)
