@@ -35,7 +35,7 @@
 
 import sys
 import logging
-from typing import Any, Dict, List, Tuple, Callable, Sequence, ValuesView, Optional
+from typing import Any, Dict, List, Tuple, Callable, Sequence, ValuesView, Optional, Union
 from uuid import uuid5, NAMESPACE_OID, UUID
 from weakref import proxy
 from time import sleep, monotonic
@@ -52,6 +52,7 @@ INTERNAL_ROUTE = b'INTERNAL'
 # Logger
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.WARNING)
 
 # Functions
 def peer_role(my_role: Origin) -> Origin:
@@ -78,6 +79,10 @@ Arguments:
     else:
         module = __import__(module_spec, globals(), locals(), [name], 0)
     return getattr(module, name)
+
+def msg_bytes(msg: Union[bytes, bytearray, Frame]) -> bytes:
+    "Return message frame as bytes."
+    return msg.bytes if isinstance(msg, Frame) else msg
 
 # Manager for ZMQ channels
 class ChannelManager:
@@ -216,6 +221,11 @@ Arguments:
     def clear(self) -> None:
         """Clears message data."""
         self.data.clear()
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = BaseMessage()
+        msg.data = self.data.copy()
+        return msg
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         """Verifies that sequence of ZMQ zmsg frames is a valid message.
@@ -260,7 +270,7 @@ Attributes:
         self.messages: List[BaseMessage] = []
     def send_later(self, zmsg: List) -> None:
         """Add ZMQ message to deferred queue."""
-        log.info('Send later queue: %s', len(self.messages))
+        log.debug('Send later queue: %s', len(self.messages))
         if not self.messages:
             self.pending_since = monotonic()
         self.messages.append(zmsg)

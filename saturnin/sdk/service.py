@@ -38,7 +38,7 @@
 import logging
 from typing import Any, Sequence, List
 from zmq import Context
-from . import fbsp_pb2 as pb
+from firebird.butler import fbsp_pb2 as pb
 from .types import TService, AgentDescriptor, PeerDescriptor, InterfaceDescriptor, \
      InvalidMessageError, ZMQAddress
 from .base import ChannelManager, RouterChannel, BaseServiceImpl
@@ -68,7 +68,7 @@ Configuration options (retrieved via `get()`):
         super().__init__(stop_event)
         log.debug("%s.__init__", self.__class__.__name__)
         self.endpoints: List[ZMQAddress] = []
-        self.welcome_df: pb.WelcomeDataframe = pb.WelcomeDataframe()
+        self.welcome_df: pb.FBSPWelcomeDataframe = pb.FBSPWelcomeDataframe()
         self.msg_handler = None
         self.agent: AgentDescriptor = None
         self.peer: PeerDescriptor = None

@@ -41,14 +41,14 @@ import logging
 from typing import List, Dict, Sequence, Optional, Union
 from uuid import UUID, uuid5, NAMESPACE_OID
 from struct import pack, unpack
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 from time import monotonic
 import zmq
-from saturnin.sdk import fbsp_pb2 as pb
-from .types import TChannel, TServiceImpl, TSession, TMessage, Token, State, \
-     ServiceError, ClientError, InvalidMessageError, Origin, MsgType, MsgFlag, ErrorCode
+from firebird.butler import fbsp_pb2 as pb, fbsd_pb2 as fbsd
+from .types import TChannel, TServiceImpl, TSession, TMessage, TProtocol, Token, State, \
+     ServiceError, ClientError, InvalidMessageError, Origin
 from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
-     get_unique_key, peer_role
+     get_unique_key, peer_role, msg_bytes
 
 PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.0' # firebird.butler.protocol.fbsp
 PROTOCOL_UID = uuid5(NAMESPACE_OID, PROTOCOL_OID)
@@ -65,6 +65,52 @@ ERROR_TYPE_MASK = 31
 
 log = logging.getLogger(__name__)
 
+# Enums
+
+class MsgType(IntEnum):
+    "FBSP Message Type"
+    UNKNOWN = 0 # Not a valid option, defined only to handle undefined values
+    HELLO = 1   # initial message from client
+    WELCOME = 2 # initial message from service
+    NOOP = 3    # no operation, used for keep-alive & ping purposes
+    REQUEST = 4 # client request
+    REPLY = 5   # service response to client request
+    DATA = 6    # separate data sent by either client or service
+    CANCEL = 7  # cancel request
+    STATE = 8   # operating state information
+    CLOSE = 9   # sent by peer that is going to close the connection
+    ERROR = 31  # error reported by service
+
+class MsgFlag(IntFlag):
+    "FBSP message flag"
+    NONE = 0
+    ACK_REQ = 1
+    ACK_REPLY = 2
+    MORE = 4
+
+class ErrorCode(IntEnum):
+    "FBSP Error Code"
+    # Errors indicating that particular request cannot be satisfied
+    INVALID_MESSAGE = 1
+    PROTOCOL_VIOLATION = 2
+    BAD_REQUEST = 3
+    NOT_IMPLEMENTED = 4
+    ERROR = 5
+    INTERNAL_SERVICE_ERROR = 6
+    REQUEST_TIMEOUT = 7
+    TOO_MANY_REQUESTS = 8
+    FAILED_DEPENDENCY = 9
+    FORBIDDEN = 10
+    UNAUTHORIZED = 11
+    NOT_FOUND = 12
+    GONE = 13
+    CONFLICT = 14
+    PAYLOAD_TOO_LARGE = 15
+    INSUFFICIENT_STORAGE = 16
+    # Fatal errors indicating that connection would/should be terminated
+    SERVICE_UNAVAILABLE = 2000
+    FBSP_VERSION_NOT_SUPPORTED = 2001
+
 # Protocol Buffer (fbsp.proto) validators
 
 def __invalid_if(expr: bool, protobuf: str, field: str) -> None:
@@ -72,18 +118,18 @@ def __invalid_if(expr: bool, protobuf: str, field: str) -> None:
     if expr:
         raise InvalidMessageError("Missing required field '%s.%s'" % (protobuf, field))
 
-def validate_vendor_id_pb(pbo: pb.VendorId) -> None:
+def validate_vendor_id_pb(pbo: fbsd.VendorId) -> None:
     "Validate fbsp.VendorId protobuf. Raises InvalidMessage for missing required fields."
     name = "VendorId"
     __invalid_if(pbo.uid == 0, name, "uid")
 
-def validate_platform_id_pb(pbo: pb.PlatformId) -> None:
+def validate_platform_id_pb(pbo: fbsd.PlatformId) -> None:
     "Validate fbsp.PlatformId protobuf. Raises InvalidMessage for missing required fields."
     name = "PlatformId"
     __invalid_if(pbo.uid == 0, name, "uid")
     __invalid_if(pbo.version == 0, name, "version")
 
-def validate_agent_id_pb(pbo: pb.AgentIdentification) -> None:
+def validate_agent_id_pb(pbo: fbsd.AgentIdentification) -> None:
     "Validate fbsp.AgentIdentification protobuf. Raises InvalidMessage for missing required fields."
     name = "AgentIdentification"
     __invalid_if(pbo.uid == 0, name, "uid")
@@ -94,37 +140,37 @@ def validate_agent_id_pb(pbo: pb.AgentIdentification) -> None:
     validate_vendor_id_pb(pbo.vendor)
     validate_platform_id_pb(pbo.platform)
 
-def validate_peer_id_pb(pbo: pb.PeerIdentification) -> None:
+def validate_peer_id_pb(pbo: fbsd.PeerIdentification) -> None:
     "Validate fbsp.PeerIdentification protobuf. Raises InvalidMessage for missing required fields."
     name = "PeerIdentification"
     __invalid_if(len(pbo.uid) == 0, name, "uid")
     __invalid_if(pbo.pid == 0, name, "pid")
     __invalid_if(len(pbo.host) == 0, name, "host")
 
-def validate_error_desc_pb(pbo: pb.ErrorDescription) -> None:
+def validate_error_desc_pb(pbo: fbsd.ErrorDescription) -> None:
     "Validate fbsp.ErrorDescription protobuf. Raises InvalidMessage for missing required fields."
     name = "ErrorDescription"
     __invalid_if(pbo.code == 0, name, "code")
     __invalid_if(len(pbo.description) == 0, name, "description")
 
-def validate_interface_spec_pb(pbo: pb.InterfaceSpec) -> None:
+def validate_interface_spec_pb(pbo: fbsd.InterfaceSpec) -> None:
     "Validate fbsp.InterfaceSpec protobuf. Raises InvalidMessage for missing required fields."
     name = "InterfaceSpec"
     __invalid_if(pbo.number == 0, name, "number")
     __invalid_if(len(pbo.uid) == 0, name, "uid")
 
-def validate_cancel_pb(pbo: pb.CancelRequests) -> None:
+def validate_cancel_pb(pbo: pb.FBSPCancelRequests) -> None:
     "Validate fbsp.CancelRequests protobuf. Raises InvalidMessage for missing required fields."
     name = "CancelRequests"
     __invalid_if(len(pbo.token) == 0, name, "token")
 
-def validate_hello_pb(pbo: pb.HelloDataframe) -> None:
+def validate_hello_pb(pbo: pb.FBSPHelloDataframe) -> None:
     "Validate fbsp.HelloDataframe protobuf. Raises InvalidMessage for missing required fields."
     #name = "HelloDataframe"
     validate_peer_id_pb(pbo.instance)
     validate_agent_id_pb(pbo.client)
 
-def validate_welcome_pb(pbo: pb.WelcomeDataframe) -> None:
+def validate_welcome_pb(pbo: pb.FBSPWelcomeDataframe) -> None:
     "Validate fbsp.WelcomeDataframe protobuf. Raises InvalidMessage for missing required fields."
     name = "WelcomeDataframe"
     validate_peer_id_pb(pbo.instance)
@@ -134,10 +180,6 @@ def validate_welcome_pb(pbo: pb.WelcomeDataframe) -> None:
         validate_interface_spec_pb(ispec)
 
 # Functions
-
-def msg_bytes(msg: Union[bytes, bytearray, zmq.Frame]) -> bytes:
-    "Return message frame as bytes."
-    return msg.bytes if isinstance(msg, zmq.Frame) else msg
 
 def bb2h(value_hi: int, value_lo: int) -> int:
     "Compose two bytes into word value."
@@ -162,7 +204,7 @@ class Message(BaseMessage):
     """Base FBSP Message.
 
 Attributes:
-    :message_type: Type of message (int)
+    :message_type: Type of message
     :header:       FBSP control frame (bytes)
     :flasg:        flags (int)
     :type_data:    Data associated with message (int)
@@ -183,11 +225,19 @@ Attributes:
         "Called for printout of attributes defined by descendant classes."
         return ""
     def from_zmsg(self, frames: Sequence) -> None:
+        """Populate message attributes from sequence of ZMQ data frames. The `data`
+attribute does not contain the FBSP control frame. Also, the descendant classes may
+unpack some data frames into additional attributes they define.
+
+Arguments:
+    :frames: Sequence of frames that should be deserialized.
+"""
         _, flags, self.type_data, self.token = unpack(HEADER_FMT, frames[0])
         self.flags = MsgFlag(flags)
         self.data = frames[1:]  # First frame is a control frame
         self._unpack_data()
     def as_zmsg(self) -> Sequence:
+        """Returns message as sequence of ZMQ data frames."""
         zmsg = []
         zmsg.append(self.get_header())
         self._pack_data(zmsg)
@@ -218,6 +268,14 @@ Attributes:
         self.token = bytearray(8)
         self.type_data = 0
         self.flags = MsgFlag(0)
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = super().copy()
+        msg.message_type = self.message_type
+        msg.type_data = self.type_data
+        msg.flags = self.flags
+        msg.token = self.token.copy()
+        return msg
     def shall_ack(self) -> bool:
         """Returns True if message must be acknowledged."""
         return self.has_ack_req() and self.message_type in (MsgType.NOOP, MsgType.REQUEST,
@@ -312,6 +370,11 @@ class HandshakeMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.peer.Clear()
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = super().copy()
+        msg.peer.CopyFrom(self.peer)
+        return msg
 
 class HelloMessage(HandshakeMessage):
     """The HELLO message is a Client request to open a Connection to the Service.
@@ -320,12 +383,12 @@ class HelloMessage(HandshakeMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.HELLO
-        self.peer = pb.HelloDataframe()
+        self.peer = pb.FBSPHelloDataframe()
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         super().validate_zmsg(zmsg)
         try:
-            frame = pb.HelloDataframe()
+            frame = pb.FBSPHelloDataframe()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_hello_pb(frame)
         except Exception as exc:
@@ -338,12 +401,12 @@ class WelcomeMessage(HandshakeMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.WELCOME
-        self.peer = pb.WelcomeDataframe()
+        self.peer = pb.FBSPWelcomeDataframe()
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         super().validate_zmsg(zmsg)
         try:
-            frame = pb.WelcomeDataframe()
+            frame = pb.FBSPWelcomeDataframe()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_welcome_pb(frame)
         except Exception as exc:
@@ -411,7 +474,7 @@ class CancelMessage(Message):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.CANCEL
-        self.cancel_reqest = pb.CancelRequests()
+        self.cancel_reqest = pb.FBSPCancelRequests()
     def _unpack_data(self) -> None:
         self.cancel_reqest.ParseFromString(msg_bytes(self.data.pop(0)))
     def _pack_data(self, frames: list) -> None:
@@ -422,13 +485,18 @@ class CancelMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.cancel_reqest.Clear()
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = super().copy()
+        msg.cancel_reqest.ParseFromString(self.cancel_reqest.SerializeToString())
+        return msg
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         super().validate_zmsg(zmsg)
         if len(zmsg) > 2:
             raise InvalidMessageError("CANCEL must have exactly one data frame")
         try:
-            frame = pb.CancelRequests()
+            frame = pb.FBSPCancelRequests()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_cancel_pb(frame)
         except Exception as exc:
@@ -439,7 +507,7 @@ class StateMessage(APIMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.STATE
-        self._state = pb.StateInformation()
+        self._state = pb.FBSPStateInformation()
     def __get_state(self) -> State:
         return State(self._state.state)
     def __set_state(self, value: State) -> None:
@@ -458,13 +526,18 @@ class StateMessage(APIMessage):
     def clear(self) -> None:
         super().clear()
         self._state.Clear()
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = super().copy()
+        msg._state.CopyFrom(self._state)
+        return msg
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         super().validate_zmsg(zmsg)
         if len(zmsg) > 2:
             raise InvalidMessageError("STATE must have exactly one data frame")
         try:
-            frame = pb.StateInformation()
+            frame = pb.FBSPStateInformation()
             frame.ParseFromString(msg_bytes(zmsg[1]))
         except Exception as exc:
             raise InvalidMessageError("Invalid data frame for STATE") from exc
@@ -494,7 +567,7 @@ class ErrorMessage(Message):
         self.type_data |= value
     def _unpack_data(self) -> None:
         while self.data:
-            err = pb.ErrorDescription()
+            err = fbsd.ErrorDescription()
             err.ParseFromString(msg_bytes(self.data.pop(0)))
             self.errors.append(err)
     def _pack_data(self, frames: list) -> None:
@@ -513,10 +586,18 @@ class ErrorMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.errors.clear()
+    def copy(self) -> TMessage:
+        "Returns copy of the message."
+        msg = super().copy()
+        for error in self.errors:
+            err = fbsd.ErrorDescription()
+            err.CopyFrom(error)
+            msg.errors.append(err)
+        return msg
     @classmethod
     def validate_zmsg(cls, zmsg: Sequence) -> None:
         super().validate_zmsg(zmsg)
-        frame = pb.ErrorDescription()
+        frame = fbsd.ErrorDescription()
         for i, segment in enumerate(zmsg[1:]):
             try:
                 frame.ParseFromString(msg_bytes(segment))
@@ -524,9 +605,9 @@ class ErrorMessage(Message):
                 frame.Clear()
             except Exception as exc:
                 raise InvalidMessageError("Invalid data frame %d for ERROR" % i) from exc
-    def add_error(self) -> pb.ErrorDescription:
+    def add_error(self) -> fbsd.ErrorDescription:
         "Return newly created ErrorDescription associated with message."
-        frame = pb.ErrorDescription()
+        frame = fbsd.ErrorDescription()
         self.errors.append(frame)
         return frame
 
@@ -626,7 +707,14 @@ Arguments:
 
 class Protocol(BaseProtocol):
     """4/FBSP - Firebird Butler Service Protocol
-    """
+
+The main purpose of protocol class is to validate ZMQ messages and create FBSP messages.
+
+Class attributes:
+   :OID:        string with protocol OID (dot notation).
+   :UID:        UUID instance that identifies the protocol.
+   :REVISION:   Protocol revision
+"""
     OID: str = PROTOCOL_OID
     UID: UUID = PROTOCOL_UID
     REVISION: int = PROTOCOL_REVISION
@@ -650,7 +738,7 @@ class Protocol(BaseProtocol):
                    MsgType.ERROR: ErrorMessage,
                   }
     @classmethod
-    def instance(cls):
+    def instance(cls) -> TProtocol:
         """Returns global FBSP protocol instance."""
         return _FBSP_INSTANCE
     def create_message_for(self, message_type: int, token: Optional[Token] = None,
@@ -781,8 +869,6 @@ Returns:
         token: Token
         #
         header = msg_bytes(zmsg[0])
-        if isinstance(header, zmq.Frame):
-            header = header.bytes
         control_byte, flags, type_data, token = unpack(HEADER_FMT, header)
         #
         msg = self.create_message_for(control_byte >> 3, token, type_data, flags)
@@ -794,6 +880,10 @@ Returns:
 Arguments:
     :zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
     :origin: Origin of received message in protocol context.
+    :kwargs: Additional keyword-only arguments.
+
+Supported kwargs:
+    :greeting: (bool) If True, the message is validated as greeting message from origin.
 
 Raises:
     :InvalidMessageError: If message is not a valid FBSP message.
@@ -834,7 +924,7 @@ def note_exception(err_msg: ErrorMessage, exc: Exception):
         errdesc.code = exc.code
     errdesc.description = str(exc)
 
-class BaseFBSPlHandler(BaseMessageHandler):
+class BaseFBSPHandler(BaseMessageHandler):
     """Base class for FBSP message handlers.
 
 Uses `handlers` dictionary to route received messages to appropriate handlers.
@@ -852,8 +942,8 @@ Abstract methods:
     :on_data:    Handle DATA message.
     :on_close:   Handle CLOSE message.
 """
-    def __init__(self, chn: TChannel, role: Origin):
-        super().__init__(chn, role, Session)
+    def __init__(self, chn: TChannel, role: Origin, resume_timeout: int = 10):
+        super().__init__(chn, role, Session, resume_timeout)
         self.handlers = {MsgType.NOOP: self.on_noop,
                          MsgType.DATA: self.on_data,
                          MsgType.CLOSE: self.on_close,
@@ -911,7 +1001,7 @@ Arguments:
         else:
             self.on_unknown(session, msg)
 
-class ServiceMessagelHandler(BaseFBSPlHandler):
+class ServiceMessagelHandler(BaseFBSPHandler):
     """Base class for Service handlers that process messages from Client.
 
 Uses `handlers` dictionary to route received messages to appropriate handlers.
@@ -934,8 +1024,8 @@ Messages handled:
 Abstract methods:
     :handle_cancel:  Handle CANCEL message.
 """
-    def __init__(self, chn: TChannel, service_impl: TServiceImpl):
-        super().__init__(chn, Origin.SERVICE)
+    def __init__(self, chn: TChannel, service_impl: TServiceImpl, resume_timeout: int = 10):
+        super().__init__(chn, Origin.SERVICE, resume_timeout)
         self.impl: TServiceImpl = service_impl
         self.handlers.update({MsgType.HELLO: self.on_hello,
                               MsgType.REQUEST: self.on_request,
@@ -945,6 +1035,22 @@ Abstract methods:
                               MsgType.STATE: self.send_protocol_violation,
                               MsgType.ERROR: self.send_protocol_violation,
                              })
+    def create_error_message(self, msg: TMessage, text: str,
+                             err_code: ErrorCode = ErrorCode.ERROR,
+                             app_code: int = 0) -> ErrorMessage:
+        """Return newly created error message with .
+
+Arguments:
+    :msg: The original message to which the error message is an answer.
+    :text: Error message text.
+    :err_code: FBSP error code.
+    :app_code: Application error code.
+"""
+        errmsg = self.protocol.create_error_for(msg, err_code)
+        err = errmsg.add_error()
+        err.code = app_code
+        err.description = text
+        return errmsg
     def close(self):
         "Close all connections to Clients."
         log.debug("%s.close", self.__class__.__name__)
@@ -1045,7 +1151,7 @@ Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
             self.send_protocol_violation(session, msg)
 
 
-class ClientMessageHandler(BaseFBSPlHandler):
+class ClientMessageHandler(BaseFBSPHandler):
     """Base class for Client handlers that process messages from Service.
 
 Uses `handlers` dictionary to route received messages to appropriate handlers.

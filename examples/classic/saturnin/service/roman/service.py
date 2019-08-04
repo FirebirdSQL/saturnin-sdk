@@ -43,10 +43,10 @@ Supported requests:
 import logging
 from typing import Any
 from itertools import groupby
-from saturnin.sdk.types import MsgType, ErrorCode, TSession
+from saturnin.sdk.types import TSession
 from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.sdk.base import BaseChannel, BaseService
-from saturnin.sdk.fbsp import ServiceMessagelHandler, HelloMessage, \
+from saturnin.sdk.fbsp import MsgType, ErrorCode, ServiceMessagelHandler, HelloMessage, \
      CancelMessage, RequestMessage, bb2h
 from saturnin.sdk.service import SimpleServiceImpl
 

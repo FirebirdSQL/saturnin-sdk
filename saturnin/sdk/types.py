@@ -35,8 +35,8 @@
 """Saturnin SDK - Type definitions
 """
 
-from typing import TypeVar, NamedTuple, Optional, Any, List, Tuple
-from enum import Enum, IntEnum, Flag, IntFlag, auto
+from typing import TypeVar, NamedTuple, Optional, Any, List, Tuple, Callable
+from enum import Enum, IntEnum, Flag, auto
 from uuid import UUID
 from saturnin.sdk import PLATFORM_UID, PLATFORM_VERSION
 
@@ -50,6 +50,7 @@ TMessageHandler = TypeVar('TMessageHandler', bound='BaseMessageHandler')
 TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
 TClient = TypeVar('TClient', bound='ServiceClient')
+TMessageFactory = Callable[[], TMessage]
 Token = bytearray
 
 # Enums
@@ -134,50 +135,6 @@ class ServiceType(Enum):
     PROCESSING = 2    # Service that takes data on input, process them and have some data on output
     EXECUTOR = 3      # Service that does things on request
     CONTROL = 4       # Service that manages other services
-
-class MsgType(IntEnum):
-    "FBSP Message Type"
-    UNKNOWN = 0 # Not a valid option, defined only to handle undefined values
-    HELLO = 1   # initial message from client
-    WELCOME = 2 # initial message from service
-    NOOP = 3    # no operation, used for keep-alive & ping purposes
-    REQUEST = 4 # client request
-    REPLY = 5   # service response to client request
-    DATA = 6    # separate data sent by either client or service
-    CANCEL = 7  # cancel request
-    STATE = 8   # operating state information
-    CLOSE = 9   # sent by peer that is going to close the connection
-    ERROR = 31  # error reported by service
-
-class MsgFlag(IntFlag):
-    "FBSP message flag"
-    NONE = 0
-    ACK_REQ = 1
-    ACK_REPLY = 2
-    MORE = 4
-
-class ErrorCode(IntEnum):
-    "FBSP Error Code"
-    # Errors indicating that particular request cannot be satisfied
-    INVALID_MESSAGE = 1
-    PROTOCOL_VIOLATION = 2
-    BAD_REQUEST = 3
-    NOT_IMPLEMENTED = 4
-    ERROR = 5
-    INTERNAL_SERVICE_ERROR = 6
-    REQUEST_TIMEOUT = 7
-    TOO_MANY_REQUESTS = 8
-    FAILED_DEPENDENCY = 9
-    FORBIDDEN = 10
-    UNAUTHORIZED = 11
-    NOT_FOUND = 12
-    GONE = 13
-    CONFLICT = 14
-    PAYLOAD_TOO_LARGE = 15
-    INSUFFICIENT_STORAGE = 16
-    # Fatal errors indicating that connection would/should be terminated
-    SERVICE_UNAVAILABLE = 2000
-    FBSP_VERSION_NOT_SUPPORTED = 2001
 
 class State(IntEnum):
     "General state information."
@@ -282,9 +239,16 @@ class ZMQAddress(str):
 Descendant from builtin `str` type with additional R/O properties protocol, address and
 domain.
 """
-    def __init__(self, value):
-        if self.protocol == TransportProtocol.UNKNOWN_PROTOCOL:
+    def __new__(cls, value):
+        if not isinstance(value, str):
+            value = value.encode('utf8')
+        if '://' in value:
+            protocol, _ = value.split('://', 1)
+            if protocol.upper() not in TransportProtocol._member_map_:
+                raise ValueError("Uknown protocol '%s'" % protocol)
+        else:
             raise ValueError("Protocol specification required.")
+        return str.__new__(cls, value.lower())
     def __get_protocol(self) -> TransportProtocol:
         if '://' in self:
             protocol, _ = self.split('://', 1)

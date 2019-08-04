@@ -289,12 +289,12 @@ API code: 1
 ==========
 """
         try:
-            msg = self._fbsp.create_state_for(self.create_request(), fbsp.pb.RUNNING)
+            msg = self._fbsp.create_state_for(self.create_request(), fbsp.fbsd.STATE_RUNNING)
             with self.assertRaises(fbsp.InvalidMessageError):
                 self.check_msg(msg, Origin.CLIENT)
             parsed = self.check_msg(msg, Origin.SERVICE)
             self.print_msg(parsed)
-            self.assertEqual(parsed.state, fbsp.pb.RUNNING)
+            self.assertEqual(parsed.state, fbsp.fbsd.STATE_RUNNING)
             self.assertEqual(expect, self.out.getvalue())
         except fbsp.InvalidMessageError as exc:
             self.fail(str(exc))

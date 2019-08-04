@@ -37,7 +37,7 @@
 
 import logging
 from typing import Dict
-from saturnin.sdk import fbsp_pb2 as pb
+from firebird.butler import fbsp_pb2 as pb
 from .types import TChannel, TSession, ClientError, AgentDescriptor, PeerDescriptor, \
      InterfaceDescriptor
 from .fbsp import MsgType, WelcomeMessage, ClientMessageHandler, \
@@ -62,7 +62,7 @@ Abstract methods:
     def __init__(self, chn: TChannel, peer: PeerDescriptor, agent: AgentDescriptor):
         log.debug("%s.__init__", self.__class__.__name__)
         super().__init__(chn)
-        self.hello_df: pb.HelloDataframe = pb.HelloDataframe()
+        self.hello_df: pb.FBSPHelloDataframe = pb.FBSPHelloDataframe()
         self.peer: PeerDescriptor = peer
         self.agent: AgentDescriptor = agent
         self.interface_id = None
