@@ -51,7 +51,7 @@ import logging
 from typing import Any
 from uuid import uuid1
 from struct import pack, unpack
-from saturnin.sdk.types import SaturninError
+from saturnin.sdk.types import SaturninError, TService, TConfig
 from saturnin.service.echo.api import EchoRequest, SERVICE_AGENT, SERVICE_API
 from saturnin.service.roman import api as roman_api
 from saturnin.service.roman.client import RomanClient
@@ -69,8 +69,8 @@ log = logging.getLogger(__name__)
 
 class EchoMessageHandler(ServiceMessagelHandler):
     """Message handler for ECHO service."""
-    def __init__(self, chn: BaseChannel, service):
-        super().__init__(chn, service)
+    def __init__(self, service):
+        super().__init__(service)
         # Our message handlers
         self.handlers.update({(MsgType.REQUEST, bb2h(1, EchoRequest.ECHO)): self.on_echo,
                               (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_ROMAN)):
@@ -327,10 +327,14 @@ class EchoServiceImpl(SimpleServiceImpl):
     def initialize(self, svc: BaseService):
         super().initialize(svc)
         # Message handler for ECHO service
-        self.msg_handler = EchoMessageHandler(self.svc_chn, self)
+        self.msg_handler = EchoMessageHandler(self)
+        self.svc_chn.set_handler(self.msg_handler)
         #
+    def configure(self, svc: TService, config: TConfig) -> None:
+        "Service configuration. Default implementation does nothing."
+        super().configure(svc, config)
         # Channel to ROMAN service
-        roman_address = svc.get_provider_address(roman_api.ROMAN_INTERFACE_UID.bytes)
+        roman_address = config.roman_address
         if roman_address is not None:
             self.roman_chn = DealerChannel(self.instance_id.hex().encode('ascii'), False)
             self.mngr.add(self.roman_chn)

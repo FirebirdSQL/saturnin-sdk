@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
@@ -50,6 +49,12 @@ TMessageHandler = TypeVar('TMessageHandler', bound='BaseMessageHandler')
 TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
 TService = TypeVar('TService', bound='BaseService')
 TClient = TypeVar('TClient', bound='ServiceClient')
+TZMQAddress = TypeVar('ZMQAddress', bound='ZMQAddress')
+TZMQAddressList = List[TZMQAddress]
+TConfig = TypeVar('TConfig', bound='Config')
+TConfigList = List[TConfig]
+TStringList = List[str]
+TEnum = TypeVar('TEnum', bound='Enum')
 TMessageFactory = Callable[[], TMessage]
 Token = bytearray
 
@@ -130,11 +135,19 @@ class SocketUse(IntEnum):
 
 class ServiceType(Enum):
     "Service type"
-    UNKNOWN_TYPE = 0  # Not a valid option, defined only to handle undefined values
-    DATA_PROVIDER = 1 # Service that collects and pass on data.
-    PROCESSING = 2    # Service that takes data on input, process them and have some data on output
-    EXECUTOR = 3      # Service that does things on request
-    CONTROL = 4       # Service that manages other services
+    UNKNOWN_SVC_TYPE = 0  # Not a valid option, defined only to handle undefined values
+    DATA_PROVIDER = 1     # Data Pipe Service that collects and pass on data.
+    DATA_FILTER = 2       # Data Pipe Service that process data from input and sends results to output
+    DATA_CONSUMER = 3     # Data Pipe Servuce that consumes input data
+    PROCESSING = 4        # Service for data processing
+    EXECUTOR = 5          # Service that does things on request
+    CONTROL = 6           # Service that manages other services
+
+class ServiceTestType(IntEnum):
+    "Service test type"
+    UNKNOWN_TEST_TYPE = 0 # Not a valid option, defined only to handle undefined values
+    CLIENT = 1            # Test uses service Client
+    RAW = 2               # Test uses direct ZMQ messaging
 
 class State(IntEnum):
     "General state information."
@@ -210,24 +223,26 @@ class ServiceDescriptor(NamedTuple):
 
 Attributes:
     :agent:          Service agent descriptor.
-    :api:            Service API descriptor.
+    :api:            Service FBSP API description or None (for microservice).
     :dependencies:   List of (DependencyType, UUID) tuples.
     :execution_mode: Preferred execution mode.
     :service_type:   Type of service.
     :description:    Text describing the service.
     :implementation: Locator string for service implementation class.
     :container:      Locator string for service container class.
+    :config:         Locator string for service configuration callable.
     :client:         Locator string for service client class.
     :tests:          Locator string for service test class.
 """
     agent: AgentDescriptor
-    api: List[InterfaceDescriptor]
+    api: Optional[List[InterfaceDescriptor]]
     dependencies: List[Tuple[DependencyType, UUID]]
     execution_mode: ExecutionMode
     service_type: ServiceType
     description: str
     implementation: str
     container: str
+    config: Callable[[], TConfig]
     client: str
     tests: str
 

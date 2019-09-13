@@ -22,7 +22,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='saturnin-sdk',
-    version='0.3.0',
+    version='0.4.0',
     description='Reference implementation of Firebird Butler specification(s) in Python',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
@@ -51,14 +51,12 @@ setup(
         'Topic :: Software Development :: Object Brokering'
         ],
     keywords='Firebird Butler Services ZeroMQ Saturnin SDK',
-#    packages=find_packages(),  # Required
     packages=['saturnin.sdk'],  # Required
     zip_safe=False,
     install_requires=['pyzmq>=18.0.0', 'protobuf>=3.6.1'],
     python_requires='>=3.6, <4',
     test_suite='nose.collector',
     data_files=[],
-#    namespace_packages=['saturnin'],
     namespace_packages=[],
     project_urls={
         'Documentation': 'https://saturnin-sdk.readthedocs.io',
@@ -66,7 +64,8 @@ setup(
         'Funding': 'https://www.firebirdsql.org/en/donate/',
         'Source': 'https://github.com/FirebirdSQL/saturnin-sdk',
         },
-    entry_points={'console_scripts': ['runner = saturnin.sdk.tools.runner:main',
+    entry_points={'console_scripts': ['svc_run = saturnin.sdk.tools.svc_run:main',
+                                      'svc_test = saturnin.sdk.tools.svc_test:main',
                                      ],
                  }
 )

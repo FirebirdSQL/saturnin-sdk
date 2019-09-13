@@ -51,8 +51,9 @@ from enum import IntEnum
 from uuid import UUID
 from saturnin.sdk import VENDOR_UID
 from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
-     DependencyType, ExecutionMode, ServiceType
+     DependencyType, ExecutionMode, ServiceType, TConfig
 from saturnin.service.roman import api as roman_api
+from saturnin.sdk.config import ServiceConfig, ZMQAddressOption
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('7e59724e-46a4-11e9-8f39-5404a6a1fd6e')
@@ -92,6 +93,13 @@ SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT,
                                         "Sample ECHO service",
                                         'saturnin.service.echo.service:EchoServiceImpl',
                                         'saturnin.sdk.classic:SimpleService',
+                                        'saturnin.service.echo.api:get_config',
                                         'saturnin.service.echo.client:EchoClient',
                                         'saturnin.service.echo.test:TestRunner'
                                        )
+
+def get_config() -> TConfig:
+    "Returns ROMAN service configuration object."
+    cfg = ServiceConfig('%s_service' % SERVICE_AGENT.name, """ECHO service.""")
+    cfg._add_option(ZMQAddressOption('roman_address', "ROMAN service address"))
+    return cfg

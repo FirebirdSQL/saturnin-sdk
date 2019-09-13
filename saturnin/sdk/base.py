@@ -41,8 +41,8 @@ from weakref import proxy
 from time import sleep, monotonic
 from zmq import Context, Socket, Frame, Poller, POLLIN, ZMQError, EAGAIN, EHOSTUNREACH
 from zmq import NOBLOCK, ROUTER, DEALER, PUSH, PULL, PUB, SUB, XPUB, XSUB, PAIR
-from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, \
-     TService, TSession, TMessage, ZMQAddress, Origin, SocketMode, Direction, \
+from .types import TChannel, TMessageHandler, TProtocol, TServiceImpl, TService, \
+     TSession, TMessage, TConfig, ZMQAddress, Origin, SocketMode, Direction, \
      InvalidMessageError, ChannelError, ServiceError
 
 # Constants
@@ -52,7 +52,6 @@ INTERNAL_ROUTE = b'INTERNAL'
 # Logger
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.WARNING)
 
 # Functions
 def peer_role(my_role: Origin) -> Origin:
@@ -554,12 +553,18 @@ Arguments:
     :linger: (int) Linger parameter for `zmq.socket.close()`
 """
         log.debug("%s.close", self.__class__.__name__)
-        self.socket.close(*args)
         if self.handler:
             self.handler.closing()
+        self.socket.close(*args)
     def is_active(self) -> bool:
         "Returns True if channel is active (binded or connected)."
         return bool(self.endpoints)
+    def set_handler(self, handler: TMessageHandler) -> None:
+        "Assign message handler for channel."
+        if self.handler:
+            self.handler.detach_channel(self)
+        self.handler = handler
+        self.handler.attach_channel(self)
 
     mode: SocketMode = property(lambda self: self._mode, doc="ZMQ Socket mode")
     manager: ChannelManager = property(lambda self: self._mngr, doc="Channel manager")
@@ -583,8 +588,8 @@ Attributes:
 Abstract methods:
     :dispatch: Process message received from peer.
 """
-    def __init__(self, chn: TChannel, role: Origin,
-                 session_class: TSession = BaseSession, resume_timeout: int = 10):
+    def __init__(self, role: Origin, session_class: TSession = BaseSession,
+                 resume_timeout: int = 10):
         """Message handler initialization.
 
 Arguments:
@@ -594,13 +599,18 @@ Arguments:
     :resume_timeout: Time limit in seconds for how long session could be suspended before
         it's cancelled [default: 10].
 """
-        self.chn: TChannel = chn
-        chn.handler = self
+        self.chn: TChannel = None
         self.__role: Origin = role
         self.sessions: Dict[bytes, BaseSession] = {}
         self.protocol: TProtocol = BaseProtocol()
         self.resume_timeout = resume_timeout
         self.__scls: TSession = session_class
+    def attach_channel(self, channel: TChannel) -> None:
+        "Attach handler to channel."
+        self.chn = channel
+    def dettach_channel(self, channel: TChannel) -> None:
+        "Dettach handler from channel."
+        self.chn = None
     def create_session(self, routing_id: bytes) -> TSession:
         """Session object factory."""
         log.debug("%s.create_session(%s)", self.__class__.__name__, routing_id)
@@ -641,8 +651,9 @@ Default implementation discards the session. Could be overriden to drop workers,
     def closing(self) -> None:
         """Called by channel on Close event.
 
-The base implementation does nothing.
+The base implementation separates the handler from channel to break circular reference.
 """
+        self.chn = None
     def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
         """Called by `receive()` when message parsing raises InvalidMessageError.
 
@@ -839,10 +850,7 @@ Attributes:
     :stop_event: Event object used to stop the service.
 
 Configuration options (retrieved via `get()`):
-    :shutdown_linger:  ZMQ Linger value used on shutdown [Default 0].
-
-Abstract methods:
-    :initialize: Service initialization.
+    :shutdown_linger:  ZMQ Linger value used on shutdown [Default 1].
 """
     def __init__(self, stop_event: Any):
         self.stop_event = stop_event
@@ -850,8 +858,8 @@ Abstract methods:
     def get(self, name: str, *args) -> Any:
         """Returns value of variable.
 
-Child chlasses must define the attribute with given name, or `get_<name>()` callable that
-takes no arguments.
+Child chlasses must define the attribute with given name, or `get_<name>(*args)` callable
+that takes default value as optional argument.
 
 Arguments:
     :name:    Name of the variable.
@@ -862,29 +870,28 @@ Raises:
 """
         if hasattr(self, f'get_{name}'):
             fce = getattr(self, f'get_{name}')
-            value = fce()
+            value = fce(*args)
         else:
             value = getattr(self, name, *args)
         return value
     def validate(self) -> None:
-        """Validate that service implementation defines all necessary configuration options
-needed for initialization and configuration.
+        """Validate that service implementation is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
         log.debug("%s.validate", self.__class__.__name__)
-        assert isinstance(self.mngr, ChannelManager), "Channel manager required"
-        assert isinstance(self.mngr.ctx, Context), "Channel manager without ZMQ context"
         assert self.mngr.channels, "Channel manager without channels"
         for chn in self.mngr.channels:
             assert chn.handler, "Channel without handler"
     def initialize(self, svc: TService) -> None:
         """Service initialization.
 
-Must create the channel manager with zmq.context and at least one communication channel.
+Creates the channel manager with svc.zmq_context. The descendant classes must create at
+least one communication channel.
 """
-        raise NotImplementedError
+        log.debug("%s.initialize", self.__class__.__name__)
+        self.mngr = ChannelManager(svc.zmq_context)
     def finalize(self, svc: TService) -> None:
         """Service finalization.
 
@@ -893,7 +900,7 @@ is not defined, uses linger 1 for forced shutdown.
 """
         log.debug("%s.finalize", self.__class__.__name__)
         self.mngr.shutdown(self.get('shutdown_linger', 1))
-    def configure(self, svc: TService) -> None:
+    def configure(self, svc: TService, config: TConfig) -> None:
         "Service configuration. Default implementation does nothing."
     def on_idle(self) -> None:
         """Should by called by service when waiting for messages exceeds timeout. Default
@@ -908,22 +915,20 @@ structural parts is provided by (Base)ServiceImpl instance.
 
 Attributes:
     :impl: Service implementation.
+    :zmq_context: ZMQ Context instance used by service.
 
 Abstract methods:
     :run: Runs the service.
 """
-    def __init__(self, impl: TServiceImpl):
+    def __init__(self, impl: TServiceImpl, zmq_context: Context, config: TConfig):
         """
 Arguments:
     :impl:    Service implementation.
 """
+        self.zmq_context = zmq_context
         self.impl: TServiceImpl = impl
+        self.config = config
         self.__ready = False
-    def get_provider_address(self, interface_uid: bytes) -> Optional[str]:
-        """Return address of interface provider or None if it's not available. Default
-implementation always returns None.
-"""
-        return None
     def validate(self) -> None:
         """Validate that service is properly initialized and configured.
 
@@ -943,10 +948,10 @@ Raises:
 """
         log.info("Initialization of the service %s:%s", self.impl.agent.name, self.impl.agent.uid)
         self.impl.initialize(self)
-        self.impl.configure(self)
+        self.impl.configure(self, self.config)
         try:
             self.validate()
-        except AssertionError as exc:
+        except Exception as exc:
             raise ServiceError("Service is not properly initialized and configured.") from exc
         self.__ready = True
     def start(self) -> None:

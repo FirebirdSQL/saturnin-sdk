@@ -44,7 +44,8 @@ from enum import IntEnum
 from uuid import UUID
 from saturnin.sdk import VENDOR_UID
 from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
-     ExecutionMode, ServiceType
+     ExecutionMode, ServiceType, TConfig
+from saturnin.sdk.config import ServiceConfig
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
@@ -76,6 +77,11 @@ SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT, SERVICE_API, [],
                                         "Sample ROMAN service",
                                         'saturnin.service.roman.service:RomanServiceImpl',
                                         'saturnin.sdk.classic:SimpleService',
+                                        'saturnin.service.roman.api:get_config',
                                         'saturnin.service.roman.client:RomanClient',
                                         'saturnin.service.roman.test:TestRunner')
 
+def get_config() -> TConfig:
+    "Returns ROMAN service configuration object."
+    cfg = ServiceConfig('%s_service' % SERVICE_AGENT.name, """ROMAN service.""")
+    return cfg

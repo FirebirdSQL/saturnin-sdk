@@ -83,8 +83,8 @@ def arabic2roman(line: str) -> bytes:
 
 class RomanMessageHandler(ServiceMessagelHandler):
     """Message handler for ROMAN service."""
-    def __init__(self, chn: BaseChannel, service):
-        super().__init__(chn, service)
+    def __init__(self, service):
+        super().__init__(service)
         # Our message handlers
         self.handlers.update({(MsgType.REQUEST, bb2h(1, RomanRequest.ROMAN)): self.on_roman,
                               MsgType.DATA: self.send_protocol_violation,
@@ -130,4 +130,4 @@ class RomanServiceImpl(SimpleServiceImpl):
         self.api = SERVICE_API
     def initialize(self, svc: BaseService):
         super().initialize(svc)
-        self.msg_handler = RomanMessageHandler(self.svc_chn, self)
+        self.svc_chn.set_handler(RomanMessageHandler(self))

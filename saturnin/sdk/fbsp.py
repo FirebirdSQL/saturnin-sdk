@@ -942,8 +942,8 @@ Abstract methods:
     :on_data:    Handle DATA message.
     :on_close:   Handle CLOSE message.
 """
-    def __init__(self, chn: TChannel, role: Origin, resume_timeout: int = 10):
-        super().__init__(chn, role, Session, resume_timeout)
+    def __init__(self, role: Origin, resume_timeout: int = 10):
+        super().__init__(role, Session, resume_timeout)
         self.handlers = {MsgType.NOOP: self.on_noop,
                          MsgType.DATA: self.on_data,
                          MsgType.CLOSE: self.on_close,
@@ -1024,8 +1024,8 @@ Messages handled:
 Abstract methods:
     :handle_cancel:  Handle CANCEL message.
 """
-    def __init__(self, chn: TChannel, service_impl: TServiceImpl, resume_timeout: int = 10):
-        super().__init__(chn, Origin.SERVICE, resume_timeout)
+    def __init__(self, service_impl: TServiceImpl, resume_timeout: int = 10):
+        super().__init__(Origin.SERVICE, resume_timeout)
         self.impl: TServiceImpl = service_impl
         self.handlers.update({MsgType.HELLO: self.on_hello,
                               MsgType.REQUEST: self.on_request,
@@ -1180,8 +1180,8 @@ Abstract methods:
     :on_state:   Handle STATE message.
     :on_error:   Handle ERROR message received from Service.
 """
-    def __init__(self, chn: TChannel):
-        super().__init__(chn, Origin.CLIENT)
+    def __init__(self):
+        super().__init__(Origin.CLIENT)
         self.handlers.update({MsgType.WELCOME: self.on_welcome,
                               MsgType.REPLY: self.on_reply,
                               MsgType.STATE: self.on_state,

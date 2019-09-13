@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
@@ -61,7 +60,8 @@ Abstract methods:
 """
     def __init__(self, chn: TChannel, peer: PeerDescriptor, agent: AgentDescriptor):
         log.debug("%s.__init__", self.__class__.__name__)
-        super().__init__(chn)
+        super().__init__()
+        chn.set_handler(self)
         self.hello_df: pb.FBSPHelloDataframe = pb.FBSPHelloDataframe()
         self.peer: PeerDescriptor = peer
         self.agent: AgentDescriptor = agent
