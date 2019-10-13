@@ -47,23 +47,23 @@ Supported requests:
     :ECHO_DATA_SYNC:  Sends back up to 3 DATA messages using ACK handshake managed by client.
 """
 
-from enum import IntEnum
 from uuid import UUID
+from functools import partial
 from saturnin.sdk import VENDOR_UID
-from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
-     DependencyType, ExecutionMode, ServiceType, TConfig
+from saturnin.sdk.types import Enum, AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
+     DependencyType, ExecutionMode, ServiceType, ServiceFacilities
 from saturnin.service.roman import api as roman_api
-from saturnin.sdk.config import ServiceConfig, ZMQAddressOption
+from saturnin.sdk.config import create_config, ServiceConfig, ZMQAddressOption
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('7e59724e-46a4-11e9-8f39-5404a6a1fd6e')
 SERVICE_VERSION: str = '0.3'
 
-ECHO_INTERFACE_UID = UUID('24580be2-4434-11e9-b528-5404a6a1fd6e')
+ECHO_INTERFACE_UID: UUID = UUID('24580be2-4434-11e9-b528-5404a6a1fd6e')
 
-#  Request Codes
+# Request Codes
 
-class EchoRequest(IntEnum):
+class EchoRequest(Enum):
     "Echo Service Request Code"
     ECHO = 1
     ECHO_ROMAN = 2
@@ -73,33 +73,44 @@ class EchoRequest(IntEnum):
     ECHO_DATA_MORE = 6
     ECHO_DATA_SYNC = 7
 
-#  Service description
+# Configuration
 
-SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
-                                "echo",
-                                SERVICE_VERSION,
-                                VENDOR_UID,
-                                "example/echo"
-                               )
-SERVICE_INTERFACE = InterfaceDescriptor(ECHO_INTERFACE_UID, "Echo service API", 1, 1,
-                                        EchoRequest)
+class EchoConfig(ServiceConfig):
+    "Echo service configuration"
+    def __init__(self, name: str, description: str):
+        super().__init__(name, description)
+        self.roman_address: ZMQAddressOption = \
+            self.add_option(ZMQAddressOption('roman_address', "ROMAN service address"))
+
+# Service description
+
+SERVICE_AGENT: AgentDescriptor = \
+    AgentDescriptor(uid=SERVICE_UID,
+                    name="echo",
+                    version=SERVICE_VERSION,
+                    vendor_uid=VENDOR_UID,
+                    classification="example/service")
+
+SERVICE_INTERFACE: InterfaceDescriptor = \
+    InterfaceDescriptor(uid=ECHO_INTERFACE_UID,
+                        name="Echo service API",
+                        revision=1, number=1,
+                        requests=EchoRequest)
+
 SERVICE_API = [SERVICE_INTERFACE]
 
-SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT,
-                                        SERVICE_API,
-                                        [(DependencyType.PREFERRED,
-                                          roman_api.SERVICE_INTERFACE.uid)],
-                                        ExecutionMode.THREAD, ServiceType.PROCESSING,
-                                        "Sample ECHO service",
-                                        'saturnin.service.echo.service:EchoServiceImpl',
-                                        'saturnin.sdk.classic:SimpleService',
-                                        'saturnin.service.echo.api:get_config',
-                                        'saturnin.service.echo.client:EchoClient',
-                                        'saturnin.service.echo.test:TestRunner'
-                                       )
-
-def get_config() -> TConfig:
-    "Returns ROMAN service configuration object."
-    cfg = ServiceConfig('%s_service' % SERVICE_AGENT.name, """ECHO service.""")
-    cfg._add_option(ZMQAddressOption('roman_address', "ROMAN service address"))
-    return cfg
+SERVICE_DESCRIPTION: ServiceDescriptor = \
+    ServiceDescriptor(agent=SERVICE_AGENT,
+                      api=SERVICE_API,
+                      dependencies=[(DependencyType.PREFERRED, roman_api.SERVICE_INTERFACE.uid)],
+                      execution_mode=ExecutionMode.THREAD,
+                      service_type=ServiceType.PROCESSING,
+                      facilities=ServiceFacilities.FBSP_SOCKET,
+                      description="Sample ECHO service",
+                      implementation='saturnin.service.echo.service:EchoServiceImpl',
+                      container='saturnin.sdk.classic:SimpleService',
+                      config=partial(create_config, EchoConfig,
+                                     '%s_service' % SERVICE_AGENT.name, "ECHO service."),
+                      client='saturnin.service.echo.client:EchoClient',
+                      tests='saturnin.service.echo.test:TestRunner'
+                      )

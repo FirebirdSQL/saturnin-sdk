@@ -34,8 +34,10 @@
 """Test runner for ROMAN service (classic version)
 """
 
-from saturnin.sdk.types import TClient, TChannel
-from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg
+#from saturnin.sdk.types import TClient
+from saturnin.sdk.base import Channel
+from saturnin.sdk.test.fbsp import BaseTestRunner, zmq, print_msg
+#from saturnin.sdk.client import ServiceClient
 from saturnin.service.roman.api import RomanRequest, ROMAN_INTERFACE_UID
 from saturnin.service.roman.client import RomanClient
 
@@ -48,7 +50,7 @@ class TestRunner(BaseTestRunner):
         self.test_data = [b"Back to the Future (1985) takes place in year 1985",
                           b"Back to the Future 2 (1989) takes place in year 2015",
                           b"Back to the Future 3 (1990) takes place in year 1885"]
-    def create_client(self, channel: TChannel) -> TClient:
+    def create_client(self, channel: Channel) -> RomanClient:
         return RomanClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
         "Execute Client API call."
@@ -71,6 +73,6 @@ class TestRunner(BaseTestRunner):
         zmsg = socket.recv_multipart()
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
-    def client_roman(self, client: TClient):
+    def client_roman(self, client: RomanClient):
         "Client test of roman() API call."
         self.run_request(client.roman)

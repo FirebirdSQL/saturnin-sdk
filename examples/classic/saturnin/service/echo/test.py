@@ -35,9 +35,9 @@
 """
 
 from struct import pack, unpack
-from saturnin.sdk.types import TChannel, TClient
-from saturnin.sdk.fbsptest import BaseTestRunner, zmq, print_msg
-from saturnin.sdk.fbsp import StateMessage, MsgType, MsgFlag
+from saturnin.sdk.base import Channel
+from saturnin.sdk.test.fbsp import BaseTestRunner, zmq, print_msg
+from saturnin.sdk.protocol.fbsp import StateMessage, MsgType, MsgFlag
 from saturnin.service.echo.api import EchoRequest, ECHO_INTERFACE_UID
 from saturnin.service.echo.client import EchoClient
 
@@ -50,7 +50,7 @@ class TestRunner(BaseTestRunner):
         self.test_data = [b"Back to the Future (1985) takes place in year 1985",
                           b"Back to the Future 2 (1989) takes place in year 2015",
                           b"Back to the Future 3 (1990) takes place in year 1885"]
-    def create_client(self, channel: TChannel) -> TClient:
+    def create_client(self, channel: Channel) -> EchoClient:
         return EchoClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
         "Execute Client API call."
@@ -224,24 +224,24 @@ class TestRunner(BaseTestRunner):
             if not msg.has_more():
                 break
         print("    End of data stream")
-    def client_echo(self, client: TClient):
+    def client_echo(self, client: EchoClient):
         "Client test of echo() API call."
         self.run_request(client.echo)
-    def client_echo_roman(self, client: TClient):
+    def client_echo_roman(self, client: EchoClient):
         "Client test of echo_roman() API call."
         self.run_request(client.echo_roman)
-    def client_echo_more(self, client: TClient):
+    def client_echo_more(self, client: EchoClient):
         "Client test of echo_more() API call."
         self.run_request(client.echo_more)
-    def client_echo_state(self, client: TClient):
+    def client_echo_state(self, client: EchoClient):
         "Client test of echo_state() API call."
         self.run_request(client.echo_state)
-    def client_echo_sync(self, client: TClient):
+    def client_echo_sync(self, client: EchoClient):
         "Client test of echo_sync() API call."
         self.run_request(client.echo_sync)
-    def client_echo_data_more(self, client: TClient):
+    def client_echo_data_more(self, client: EchoClient):
         "Client test of echo_data_more() API call."
         self.run_request(client.echo_data_more)
-    def client_echo_data_sync(self, client: TClient):
+    def client_echo_data_sync(self, client: EchoClient):
         "Client test of echo_data_sync() API call."
         self.run_request(client.echo_data_sync)

@@ -41,14 +41,11 @@ Supported requests:
 """
 
 import logging
-from typing import Any
 from itertools import groupby
-from saturnin.sdk.types import TSession
-from saturnin.service.roman.api import RomanRequest, SERVICE_AGENT, SERVICE_API
-from saturnin.sdk.base import BaseChannel, BaseService
-from saturnin.sdk.fbsp import MsgType, ErrorCode, ServiceMessagelHandler, HelloMessage, \
-     CancelMessage, RequestMessage, bb2h
-from saturnin.sdk.service import SimpleServiceImpl
+from saturnin.service.roman.api import RomanRequest
+from saturnin.sdk.protocol.fbsp import MsgType, ErrorCode, Session, ServiceMessagelHandler, \
+     HelloMessage, CancelMessage, RequestMessage, bb2h, fbsp_proto
+from saturnin.sdk.service import SimpleServiceImpl, BaseService
 
 # Logger
 
@@ -83,33 +80,41 @@ def arabic2roman(line: str) -> bytes:
 
 class RomanMessageHandler(ServiceMessagelHandler):
     """Message handler for ROMAN service."""
-    def __init__(self, service):
-        super().__init__(service)
+    RQ_ROMAN = bb2h(1, RomanRequest.ROMAN)
+    def __init__(self, welcome_df: fbsp_proto.FBSPWelcomeDataframe):
+        super().__init__()
+        self.welcome_df = welcome_df
         # Our message handlers
-        self.handlers.update({(MsgType.REQUEST, bb2h(1, RomanRequest.ROMAN)): self.on_roman,
+        self.handlers.update({(MsgType.REQUEST, self.RQ_ROMAN): self.handle_roman,
                               MsgType.DATA: self.send_protocol_violation,
                              })
-    def on_hello(self, session: TSession, msg: HelloMessage):
+    def handle_hello(self, session: Session, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
-        log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)
-        super().on_hello(session, msg)
+        if __debug__:
+            log.debug("%s.handle_hello(%s)", self.__class__.__name__, session.routing_id)
+        super().handle_hello(session, msg)
         welcome = self.protocol.create_welcome_reply(msg)
-        welcome.peer.CopyFrom(self.impl.welcome_df)
+        welcome.peer.CopyFrom(self.welcome_df)
         self.send(welcome, session)
-    def on_cancel(self, session: TSession, msg: CancelMessage):
+    def handle_cancel(self, session: Session, msg: CancelMessage):
         "Handle CANCEL message."
-        # ROMAN uses simple REQUEST/REPLY API, so there is no point to send CANCEL
-        # messages. However, we have to handle it although we'll do nothing.
-        # In such cases we could either override the on_cancel() method like now,
-        # or assign self.do_nothing handler to MsgType.CANCEL in __init__().
-        log.debug("%s.on_cancel(%s)", self.__class__.__name__, session.routing_id)
-    def on_roman(self, session: TSession, msg: RequestMessage):
+        # ROMAN uses simple REQUEST/REPLY API, so there is no reason to support CANCEL
+        if __debug__:
+            log.debug("%s.handle_cancel(%s)", self.__class__.__name__, session.routing_id)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
+        self.send_error(session, session.greeting, ErrorCode.NOT_IMPLEMENTED,
+                        "ROMAN service does not support request cancelation")
+    def handle_roman(self, session: Session, msg: RequestMessage):
         """Handle REQUEST/ROMAN message.
 
 Data frames must contain strings as UTF-8 encoded bytes. We'll send them back in REPLY with
 Arabic numbers replaced with Roman ones.
 """
-        log.debug("%s.on_roman(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_roman(%s)", self.__class__.__name__, session.routing_id)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         reply = self.protocol.create_reply_for(msg)
         try:
             for data in msg.data:
@@ -117,17 +122,11 @@ Arabic numbers replaced with Roman ones.
                 reply.data.append(arabic2roman(line))
             self.send(reply, session)
         except UnicodeDecodeError:
-            err_msg = self.protocol.create_error_for(msg, ErrorCode.BAD_REQUEST)
-            err = err_msg.add_error()
-            err.description = "Data must be UTF-8 bytestrings"
-            self.send(err_msg, session)
+            self.send_error(session, msg, ErrorCode.BAD_REQUEST,
+                            "Data must be UTF-8 bytestrings")
 
 class RomanServiceImpl(SimpleServiceImpl):
     """Implementation of ROMAN service."""
-    def __init__(self, stop_event: Any):
-        super().__init__(stop_event)
-        self.agent = SERVICE_AGENT
-        self.api = SERVICE_API
     def initialize(self, svc: BaseService):
         super().initialize(svc)
-        self.svc_chn.set_handler(RomanMessageHandler(self))
+        self.svc_chn.set_handler(RomanMessageHandler(self.welcome_df))

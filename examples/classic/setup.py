@@ -22,7 +22,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='saturnin-sdk-examples',
-    version='0.2.0',
+    version='0.4.0',
     description='Saturnin SDK Examples',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
@@ -54,7 +54,7 @@ setup(
 #    packages=find_packages(),  # Required
     packages=['saturnin.service.roman','saturnin.service.echo'],  # Required
     zip_safe=False,
-    install_requires=['saturnin-sdk>=0.2', 'pyzmq>=18.0.2', 'protobuf>=3.9.0'],
+    install_requires=['saturnin-sdk>=0.4.0', 'pyzmq>=18.0.0', 'protobuf>=3.9.0'],
     python_requires='>=3.6, <4',
     test_suite='nose.collector',
     data_files=[],
@@ -67,7 +67,8 @@ setup(
         'Source': 'https://github.com/FirebirdSQL/saturnin-sdk',
         },
     entry_points={'saturnin.service': ['roman = saturnin.service.roman.api:SERVICE_DESCRIPTION',
-                                       'echo = saturnin.service.echo.api:SERVICE_DESCRIPTION'
+                                       'echo = saturnin.service.echo.api:SERVICE_DESCRIPTION',
+                                       'textio = saturnin.micro.textio.api:SERVICE_DESCRIPTION',
                                       ],
                  }
 )

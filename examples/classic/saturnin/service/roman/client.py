@@ -39,7 +39,8 @@ import logging
 from typing import List, Dict
 from saturnin.service.roman.api import RomanRequest, SERVICE_INTERFACE
 from saturnin.sdk.types import InterfaceDescriptor
-from saturnin.sdk.fbsp import Session, MsgType, bb2h, ReplyMessage, ErrorMessage, exception_for
+from saturnin.sdk.protocol.fbsp import Session, Message, MsgType, bb2h, ReplyMessage, \
+     ErrorMessage, ClientError, exception_for
 from saturnin.sdk.client import ServiceClient
 
 # Logger
@@ -51,21 +52,32 @@ class RomanClient(ServiceClient):
     def get_interface(self) -> InterfaceDescriptor:
         return SERVICE_INTERFACE
     def get_handlers(self, api_number: int) -> Dict:
-        return {(MsgType.REPLY, bb2h(api_number, RomanRequest.ROMAN)): self.on_roman,
+        return {(MsgType.REPLY, bb2h(api_number, RomanRequest.ROMAN)): self.handle_roman,
                 MsgType.DATA: self.raise_protocol_violation,
                 MsgType.REPLY: self.raise_protocol_violation,
                 MsgType.STATE: self.raise_protocol_violation,
                }
-    def on_error(self, session: Session, msg: ErrorMessage):
+    def handle_data(self, session: Session, msg: Message) -> None:
+        "Handle DATA message."
+        raise ClientError("DATA message received.")
+    def handle_state(self, session: Session, msg: Message) -> None:
+        "Handle STATE message."
+        raise ClientError("STATE message received.")
+    def handle_reply(self, session: Session, msg: Message) -> None:
+        "Handle Service REPLY message."
+        raise ClientError("Unhandled REPLY message received.")
+    def handle_error(self, session: Session, msg: ErrorMessage):
         "Handle ERROR message received from Service."
-        log.debug("%s.on_error(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_error(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token
         if msg.token != session.greeting.token:
             session.request_done(msg.token)
         raise exception_for(msg)
-    def on_roman(self, session: Session, msg: ReplyMessage):
+    def handle_roman(self, session: Session, msg: ReplyMessage):
         "ROMAN reply handler."
-        log.debug("%s.on_roman(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_roman(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token
         req = session.get_request(msg.token)
         req.response = msg.data
@@ -83,7 +95,7 @@ Keyword arguments:
 Returns:
     List of positional arguments passed.
 """
-        log.debug("%s.roman()", self.__class__.__name__)
+        if __debug__: log.debug("%s.roman()", self.__class__.__name__)
         session: Session = self.get_session()
         assert session
         token = self.new_token()

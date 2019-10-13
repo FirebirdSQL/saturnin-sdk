@@ -49,17 +49,15 @@ Supported requests:
 
 import logging
 from typing import Any
-from uuid import uuid1
 from struct import pack, unpack
-from saturnin.sdk.types import SaturninError, TService, TConfig
-from saturnin.service.echo.api import EchoRequest, SERVICE_AGENT, SERVICE_API
-from saturnin.service.roman import api as roman_api
+from saturnin.sdk.types import SaturninError, ServiceDescriptor
 from saturnin.service.roman.client import RomanClient
-from saturnin.sdk.base import BaseChannel, BaseService, DealerChannel
-from saturnin.sdk.service import SimpleServiceImpl
-from saturnin.sdk.fbsp import Session, bb2h, ServiceMessagelHandler, \
+from saturnin.sdk.base import DealerChannel
+from saturnin.sdk.service import SimpleServiceImpl, BaseService
+from saturnin.sdk.protocol.fbsp import Session, bb2h, ServiceMessagelHandler, \
      MsgType, MsgFlag, State, ErrorCode, HelloMessage, CancelMessage, DataMessage, \
-     ReplyMessage, RequestMessage
+     ReplyMessage, RequestMessage, note_exception, fbsp_proto
+from .api import EchoRequest, EchoConfig
 
 # Logger
 
@@ -69,45 +67,55 @@ log = logging.getLogger(__name__)
 
 class EchoMessageHandler(ServiceMessagelHandler):
     """Message handler for ECHO service."""
-    def __init__(self, service):
-        super().__init__(service)
+    RQ_ECHO: int = bb2h(1, EchoRequest.ECHO)
+    RQ_ECHO_ROMAN: int = bb2h(1, EchoRequest.ECHO_ROMAN)
+    RQ_ECHO_MORE: int = bb2h(1, EchoRequest.ECHO_MORE)
+    RQ_ECHO_STATE: int = bb2h(1, EchoRequest.ECHO_STATE)
+    RQ_ECHO_SYNC: int = bb2h(1, EchoRequest.ECHO_SYNC)
+    RQ_ECHO_DATA_MORE: int = bb2h(1, EchoRequest.ECHO_DATA_MORE)
+    RQ_ECHO_DATA_SYNC: int = bb2h(1, EchoRequest.ECHO_DATA_SYNC)
+    def __init__(self, welcome_df: fbsp_proto.FBSPWelcomeDataframe):
+        super().__init__()
+        self.welcome_df = welcome_df
         # Our message handlers
-        self.handlers.update({(MsgType.REQUEST, bb2h(1, EchoRequest.ECHO)): self.on_echo,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_ROMAN)):
-                              self.on_echo_roman,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_MORE)):
-                              self.on_echo_more,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_STATE)):
-                              self.on_echo_state,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_SYNC)):
-                              self.on_echo_sync,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_DATA_MORE)):
-                              self.on_echo_data_more,
-                              (MsgType.REQUEST, bb2h(1, EchoRequest.ECHO_DATA_SYNC)):
-                              self.on_echo_data_sync,
+        self.handlers.update({(MsgType.REQUEST, self.RQ_ECHO): self.handle_echo,
+                              (MsgType.REQUEST, self.RQ_ECHO_ROMAN): self.handle_echo_roman,
+                              (MsgType.REQUEST, self.RQ_ECHO_MORE): self.handle_echo_more,
+                              (MsgType.REQUEST, self.RQ_ECHO_STATE): self.handle_echo_state,
+                              (MsgType.REQUEST, self.RQ_ECHO_SYNC): self.handle_echo_sync,
+                              (MsgType.REQUEST, self.RQ_ECHO_DATA_MORE): self.handle_echo_data_more,
+                              (MsgType.REQUEST, self.RQ_ECHO_DATA_SYNC): self.handle_echo_data_sync,
                              })
         # Optional ROMAN client
         self.roman_cli: RomanClient = None
         self.roman_address = None
-    def on_hello(self, session: Session, msg: HelloMessage):
+    def handle_hello(self, session: Session, msg: HelloMessage):
         "HELLO message handler. Sends WELCOME message back to the client."
-        log.debug("%s.on_hello(%s)", self.__class__.__name__, session.routing_id)
-        super().on_hello(session, msg)
+        if __debug__:
+            log.debug("%s.handle_hello(%s)", self.__class__.__name__, session.routing_id)
+        super().handle_hello(session, msg)
         welcome = self.protocol.create_welcome_reply(msg)
-        welcome.peer.CopyFrom(self.impl.welcome_df)
+        welcome.peer.CopyFrom(self.welcome_df)
         self.send(welcome, session)
-    def on_cancel(self, session: Session, msg: CancelMessage):
+    def handle_cancel(self, session: Session, msg: CancelMessage):
         """Handle CANCEL message.
 
-TODO: Properly handle CANCEL request. Right now we ignore it and do nothing.
+TODO: Implement support for canceletion of at least one multi-message API: ECHO_MORE,
+ECHO_STATE, ECHO_SYNC, ECHO_DATA_MORE or ECHO_DATA_SYNC.
 """
-        log.debug("%s.on_cancel(%s)", self.__class__.__name__, session.routing_id)
-    def on_ack_reply(self, session: Session, msg: ReplyMessage):
+        if __debug__:
+            log.debug("%s.handle_cancel(%s)", self.__class__.__name__, session.routing_id)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
+        self.send_error(session, session.greeting, ErrorCode.NOT_IMPLEMENTED,
+                        "ECHO service does not support request cancelation")
+    def handle_ack_reply(self, session: Session, msg: ReplyMessage):
         """REPLY message handler."""
         # If the message is ACK-REPLY to ECHO_SYNC request, we will start sending DATA to
         # the client.
-        log.debug("%s.on_ack_reply(%s)", self.__class__.__name__, session.routing_id)
-        if msg.request_code == bb2h(1, EchoRequest.ECHO_SYNC):
+        if __debug__:
+            log.debug("%s.handle_ack_reply(%s)", self.__class__.__name__, session.routing_id)
+        if msg.request_code == self.RQ_ECHO_SYNC:
             req_msg = session.get_request(msg.token)
             msg_data = self.protocol.create_data_for(req_msg)
             msg_data.data.append(req_msg.data.pop(0))
@@ -117,7 +125,7 @@ TODO: Properly handle CANCEL request. Right now we ignore it and do nothing.
             else:
                 session.request_done(req_msg)
             self.send(msg_data, session)
-    def on_data(self, session: Session, msg: DataMessage):
+    def handle_data(self, session: Session, msg: DataMessage):
         """DATA message handler.
 
 There are three cases when this handler is called:
@@ -128,10 +136,11 @@ There are three cases when this handler is called:
 
 All messages must have a valid handle in `type_data`.
 """
-        log.debug("%s.on_data(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
         if session.is_handle_valid(msg.type_data):
             req_msg = session.get_request(handle=msg.type_data)
-            if req_msg.request_code == bb2h(1, EchoRequest.ECHO_SYNC):
+            if req_msg.request_code == self.RQ_ECHO_SYNC:
                 if msg.has_ack_reply():
                     msg_data = self.protocol.create_data_for(req_msg)
                     msg_data.type_data = msg.type_data
@@ -142,19 +151,14 @@ All messages must have a valid handle in `type_data`.
                         session.request_done(req_msg)
                     self.send(msg_data, session)
                 else: # regular DATA without ACK_REPLY is a client error
-                    err = self.protocol.create_error_for(req_msg, ErrorCode.BAD_REQUEST)
-                    errd = err.add_error()
-                    errd.code = ErrorCode.PROTOCOL_VIOLATION
-                    errd.description = "Expected DATA with ACK_REPLY"
-                    self.send(err, session)
-            elif req_msg.request_code == bb2h(1, EchoRequest.ECHO_DATA_MORE):
+                    self.send_error(session, req_msg, ErrorCode.PROTOCOL_VIOLATION,
+                                    "Expected DATA with ACK_REPLY")
+                    session.request_done(req_msg)
+            elif req_msg.request_code == self.RQ_ECHO_DATA_MORE:
                 if len(req_msg.data) == 3:
                     # too many data messages
-                    err = self.protocol.create_error_for(req_msg, ErrorCode.BAD_REQUEST)
-                    errd = err.add_error()
-                    errd.code = ErrorCode.PROTOCOL_VIOLATION
-                    errd.description = "Too many DATA messages"
-                    self.send(err, session)
+                    self.send_error(session, req_msg, ErrorCode.PROTOCOL_VIOLATION,
+                                    "Too many DATA messages")
                     session.request_done(req_msg)
                 req_msg.data.append(msg)
                 if not msg.has_more():
@@ -170,16 +174,13 @@ All messages must have a valid handle in `type_data`.
                         self.send(msg_data, session)
                         msg_data.data.clear()
                     session.request_done(req_msg)
-            elif req_msg.request_code == bb2h(1, EchoRequest.ECHO_DATA_SYNC):
+            elif req_msg.request_code == self.RQ_ECHO_DATA_SYNC:
                 req_msg.data.append(msg)
                 if msg.has_ack_req():
                     if len(req_msg.data) == req_msg.expect:
                         # Error, the last one should not have ACK_REQ
-                        err = self.protocol.create_error_for(req_msg, ErrorCode.BAD_REQUEST)
-                        errd = err.add_error()
-                        errd.code = ErrorCode.PROTOCOL_VIOLATION
-                        errd.description = "Last DATA message must not have ACK_REQ flag"
-                        self.send(err, session)
+                        self.send_error(session, req_msg, ErrorCode.PROTOCOL_VIOLATION,
+                                        "Last DATA message must not have ACK_REQ flag")
                         session.request_done(req_msg)
                     else:
                         self.send(self.protocol.create_ack_reply(msg), session)
@@ -200,34 +201,43 @@ All messages must have a valid handle in `type_data`.
                         session.request_done(req_msg)
                     else:
                         # Did we miss a DATA message?
-                        err = self.protocol.create_error_for(req_msg, ErrorCode.BAD_REQUEST)
-                        errd = err.add_error()
-                        errd.code = ErrorCode.PROTOCOL_VIOLATION
-                        errd.description = f"Announced {req_msg.expect} messages, but only {len(req_msg.data)} received"
-                        self.send(err, session)
+                        self.send_error(session, req_msg, ErrorCode.PROTOCOL_VIOLATION,
+                                        "Announced %s messages, but only %s received" %
+                                        (req_msg.expect, len(req_msg.data)))
                         session.request_done(req_msg)
         else:
-            err = self.protocol.create_error_for(session.greeting, ErrorCode.BAD_REQUEST)
-            errd = err.add_error()
-            errd.code = ErrorCode.PROTOCOL_VIOLATION
-            errd.description = "Invalid DATA.type_data content"
-            self.send(err, session)
-    def on_echo(self, session: Session, msg: RequestMessage):
+            self.send_error(session, session.greeting, ErrorCode.PROTOCOL_VIOLATION,
+                            "Invalid DATA.type_data content")
+            session.request_done(req_msg)
+    def handle_echo(self, session: Session, msg: RequestMessage):
         "ECHO request handler."
-        log.debug("%s.on_echo(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         reply = self.protocol.create_reply_for(msg)
         reply.data.extend(list(msg.data)) # copy data
         self.send(reply, session)
         session.request_done(msg)
-    def on_echo_roman(self, session: Session, msg: RequestMessage):
+    def handle_echo_roman(self, session: Session, msg: RequestMessage):
         "ECHO_ROMAN request handler."
-        log.debug("%s.on_echo_roman(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_roman(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         #
-        if self.roman_cli is not None and not self.roman_cli.is_active():
+        if self.roman_address and self.roman_cli is not None and not self.roman_cli.is_active():
             # ROMAN service is not yet connected
-            self.roman_cli.open(self.roman_address)
+            try:
+                self.roman_cli.open(self.roman_address)
+            except Exception as exc:
+                log.warning("ROMAN service not available: %s", exc)
+                self.send_error(session, msg, ErrorCode.FAILED_DEPENDENCY,
+                                "ROMAN service not available", exc=exc)
+                session.request_done(msg)
+                return
         if self.roman_cli is not None and self.roman_cli.is_active():
             reply = self.protocol.create_reply_for(msg)
             # copy data from ROMAN's reply
@@ -235,25 +245,26 @@ All messages must have a valid handle in `type_data`.
                 reply.data.extend(list(self.roman_cli.roman(*msg.data, timeout=1000)))
             except TimeoutError as exc:
                 reply = self.protocol.create_error_for(msg, ErrorCode.REQUEST_TIMEOUT)
-                err = reply.add_error()
-                err.description = str(exc)
+                note_exception(reply, exc)
             except SaturninError as exc:
                 reply = self.protocol.create_error_for(msg, ErrorCode.ERROR)
-                err = reply.add_error()
-                err.description = str(exc)
+                note_exception(reply, exc)
             self.send(reply, session)
         else:
             # ROMAN service not available
-            err_msg = self.protocol.create_error_for(msg, ErrorCode.FAILED_DEPENDENCY)
-            err = err_msg.add_error()
-            err.description = "ROMAN service not available"
-            self.send(err_msg, session)
+            self.send_error(session, msg, ErrorCode.FAILED_DEPENDENCY,
+                            "ROMAN service not available")
         session.request_done(msg)
-    def on_echo_more(self, session: Session, msg: RequestMessage):
+    def handle_echo_more(self, session: Session, msg: RequestMessage):
         "ECHO_MORE request handler."
-        log.debug("%s.on_echo_more(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         reply = self.protocol.create_reply_for(msg)
+        if msg.data: # Required by FBSP, rules for MORE handling
+            reply.set_flag(MsgFlag.MORE)
         self.send(reply, session)
         data_msg = self.protocol.create_data_for(msg)
         while msg.data:
@@ -265,10 +276,13 @@ All messages must have a valid handle in `type_data`.
             self.send(data_msg, session)
             data_msg.data.clear()
         session.request_done(msg.token)
-    def on_echo_state(self, session: Session, msg: RequestMessage):
+    def handle_echo_state(self, session: Session, msg: RequestMessage):
         "ECHO_STATE request handler."
-        log.debug("%s.on_echo_state(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_state(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         reply = self.protocol.create_reply_for(msg)
         self.send(reply, session)
         data_msg = self.protocol.create_data_for(msg)
@@ -279,35 +293,42 @@ All messages must have a valid handle in `type_data`.
         state = self.protocol.create_state_for(msg, State.FINISHED)
         self.send(state, session)
         session.request_done(msg.token)
-    def on_echo_sync(self, session: Session, msg: RequestMessage):
+    def handle_echo_sync(self, session: Session, msg: RequestMessage):
         "Handle ECHO_SYNC message."
-        log.debug("%s.on_echo_sync(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_sync(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         reply = self.protocol.create_reply_for(msg)
         reply.set_flag(MsgFlag.ACK_REQ)
         self.send(reply, session)
-    def on_echo_data_more(self, session: Session, msg: RequestMessage):
+    def handle_echo_data_more(self, session: Session, msg: RequestMessage):
         "Handle ECHO_DATA_MORE message."
-        log.debug("%s.on_echo_data_more(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_data_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         msg.data.clear() # Clear data, we will accumulate sent DATA messages there
         reply = self.protocol.create_reply_for(msg)
         hnd = session.get_handle(msg)
         reply.data.append(pack('H', hnd)) # handle for type_data in DATA messages
         self.send(reply, session)
-    def on_echo_data_sync(self, session: Session, msg: RequestMessage):
+    def handle_echo_data_sync(self, session: Session, msg: RequestMessage):
         "Handle ECHO_DATA_SYNC message."
-        log.debug("%s.on_echo_data_sync(%s)", self.__class__.__name__, session.routing_id)
+        if __debug__:
+            log.debug("%s.handle_echo_data_sync(%s)", self.__class__.__name__,
+                      session.routing_id)
         session.note_request(msg)
+        if msg.has_ack_req():
+            self.send(self.protocol.create_ack_reply(msg), session)
         # Data frame must contain number of DATA messages that would follow
         i, = unpack('H', msg.data[0])
         if i > 3:
             # too many data messages
-            err = self.protocol.create_error_for(msg, ErrorCode.BAD_REQUEST)
-            errd = err.add_error()
-            errd.code = ErrorCode.PROTOCOL_VIOLATION
-            errd.description = "Too many DATA messages"
-            self.send(err, session)
+            self.send_error(session, msg, ErrorCode.PROTOCOL_VIOLATION,
+                            "Too many DATA messages")
             session.request_done(msg)
         else:
             msg.expect = i
@@ -319,25 +340,20 @@ All messages must have a valid handle in `type_data`.
 
 class EchoServiceImpl(SimpleServiceImpl):
     """Implementation of ECHO service."""
-    def __init__(self, stop_event: Any):
-        super().__init__(stop_event)
-        self.agent = SERVICE_AGENT
-        self.api = SERVICE_API
+    def __init__(self, descriptor: ServiceDescriptor, stop_event: Any):
+        super().__init__(descriptor, stop_event)
         self.roman_chn = None
     def initialize(self, svc: BaseService):
         super().initialize(svc)
         # Message handler for ECHO service
-        self.msg_handler = EchoMessageHandler(self)
-        self.svc_chn.set_handler(self.msg_handler)
-        #
-    def configure(self, svc: TService, config: TConfig) -> None:
-        "Service configuration. Default implementation does nothing."
+        self.svc_chn.set_handler(EchoMessageHandler(self.welcome_df))
+    def configure(self, svc: BaseService, config: EchoConfig) -> None:
+        "Service configuration."
         super().configure(svc, config)
         # Channel to ROMAN service
-        roman_address = config.roman_address
-        if roman_address is not None:
+        if config.roman_address is not None:
             self.roman_chn = DealerChannel(self.instance_id.hex().encode('ascii'), False)
             self.mngr.add(self.roman_chn)
             self.roman_chn.socket.connect_timeout = 1
-            self.msg_handler.roman_address = roman_address
-            self.msg_handler.roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)
+            self.svc_chn.handler.roman_address = config.roman_address.value
+            self.svc_chn.handler.roman_cli = RomanClient(self.roman_chn, self.peer, self.agent)

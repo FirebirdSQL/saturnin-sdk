@@ -40,48 +40,54 @@ Supported requests:
     :ROMAN: REPLY with altered REQUEST data frames.
 """
 
-from enum import IntEnum
 from uuid import UUID
+from functools import partial
 from saturnin.sdk import VENDOR_UID
-from saturnin.sdk.types import AgentDescriptor, InterfaceDescriptor, ServiceDescriptor, \
-     ExecutionMode, ServiceType, TConfig
-from saturnin.sdk.config import ServiceConfig
+from saturnin.sdk.types import Enum, AgentDescriptor, InterfaceDescriptor, \
+     ServiceDescriptor, ExecutionMode, ServiceType, ServiceFacilities
+from saturnin.sdk.config import ServiceConfig, create_config
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
 SERVICE_VERSION: str = '0.2'
 
-ROMAN_INTERFACE_UID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
+ROMAN_INTERFACE_UID: UUID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
 
-#  Request Codes
+# Request Codes
 
-class RomanRequest(IntEnum):
+class RomanRequest(Enum):
     "Roman Service Request Code"
     ROMAN = 1
 
-#  Service description
+# Service description
 
-SERVICE_AGENT = AgentDescriptor(SERVICE_UID,
-                                "roman",
-                                SERVICE_VERSION,
-                                VENDOR_UID,
-                                "example/roman"
-                               )
+SERVICE_AGENT: AgentDescriptor = \
+    AgentDescriptor(uid=SERVICE_UID,
+                    name="roman",
+                    version=SERVICE_VERSION,
+                    vendor_uid=VENDOR_UID,
+                    classification="example/service")
 
-SERVICE_INTERFACE = InterfaceDescriptor(ROMAN_INTERFACE_UID, "Roman service API", 1, 1,
-                                        RomanRequest)
+SERVICE_INTERFACE: InterfaceDescriptor = \
+    InterfaceDescriptor(uid=ROMAN_INTERFACE_UID,
+                        name="Roman service API",
+                        revision=1, number=1,
+                        requests=RomanRequest)
+
 SERVICE_API = [SERVICE_INTERFACE]
 
-SERVICE_DESCRIPTION = ServiceDescriptor(SERVICE_AGENT, SERVICE_API, [],
-                                        ExecutionMode.THREAD, ServiceType.PROCESSING,
-                                        "Sample ROMAN service",
-                                        'saturnin.service.roman.service:RomanServiceImpl',
-                                        'saturnin.sdk.classic:SimpleService',
-                                        'saturnin.service.roman.api:get_config',
-                                        'saturnin.service.roman.client:RomanClient',
-                                        'saturnin.service.roman.test:TestRunner')
-
-def get_config() -> TConfig:
-    "Returns ROMAN service configuration object."
-    cfg = ServiceConfig('%s_service' % SERVICE_AGENT.name, """ROMAN service.""")
-    return cfg
+SERVICE_DESCRIPTION: ServiceDescriptor = \
+    ServiceDescriptor(agent=SERVICE_AGENT,
+                      api=SERVICE_API,
+                      dependencies=[],
+                      execution_mode=ExecutionMode.THREAD,
+                      service_type=ServiceType.PROCESSING,
+                      facilities=ServiceFacilities.FBSP_SOCKET,
+                      description="Sample ROMAN service",
+                      implementation='saturnin.service.roman.service:RomanServiceImpl',
+                      container='saturnin.sdk.classic:SimpleService',
+                      config=partial(create_config, ServiceConfig,
+                                     '%s_service' % SERVICE_AGENT.name, "ROMAN service."),
+                      client='saturnin.service.roman.client:RomanClient',
+                      tests='saturnin.service.roman.test:TestRunner'
+                      )
