@@ -53,9 +53,11 @@ setup(
         'Topic :: Software Development :: Object Brokering'
         ],
     keywords='Firebird Butler Services ZeroMQ Saturnin SDK',
-    packages=['saturnin.sdk'],  # Required
+    packages=['saturnin.sdk', 'saturnin.sdk.protocol', 'saturnin.sdk.test',
+              'saturnin.sdk.tools'],  # Required
     zip_safe=False,
-    install_requires=['pyzmq>=18.0.0', 'protobuf>=3.9.0'],
+    install_requires=['pyzmq>=18.0.0', 'protobuf>=3.9.0',
+                      'firebird-butler-protobuf>=0.2.0'],
     python_requires='>=3.6, <4',
     test_suite='nose.collector',
     data_files=[],
