@@ -2,7 +2,7 @@
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
-# FILE:           test/fbsp.py
+# FILE:           test/t_fbsp.py
 # DESCRIPTION:    Unit tests for FBSP implementation
 # CREATED:        26.2.2019
 #
@@ -32,13 +32,14 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"Unit tests for FBSP implementation."
+"Saturnin SDK - Unit tests for FBSP implementation."
 
 import unittest
 import io
 from uuid import UUID
 from struct import pack
-from saturnin.sdk import fbsp, VENDOR_UID, PLATFORM_UID
+from saturnin.sdk import VENDOR_UID, PLATFORM_UID
+from saturnin.sdk.protocol import fbsp
 from saturnin.sdk.base import Origin
 
 def get_token(val):
@@ -52,12 +53,12 @@ class TestMessages(unittest.TestCase):
         self._fbsp = fbsp.Protocol.instance()
     def tearDown(self):
         self.out.close()
-    def print_msg(self, msg: fbsp.TMessage) -> None:
+    def print_msg(self, msg: fbsp.Message) -> None:
         "Print message"
         print(msg.get_printout(), file=self.out)
         print("=" * 10, file=self.out)
         #print(self.out.getvalue())
-    def check_msg(self, msg: fbsp.TMessage, origin: Origin) -> fbsp.TMessage:
+    def check_msg(self, msg: fbsp.Message, origin: Origin) -> fbsp.Message:
         "Serialize, validate and parse the message."
         zmsg = msg.as_zmsg()
         self._fbsp.validate(zmsg, origin)
@@ -75,7 +76,7 @@ class TestMessages(unittest.TestCase):
         msg.peer.client.platform.uid = PLATFORM_UID.bytes
         msg.peer.client.platform.version = "1.0"
         return msg
-    def create_request(self) -> fbsp.TMessage:
+    def create_request(self) -> fbsp.Message:
         "Creates test REQUEST/1.1 message"
         return self._fbsp.create_request_for(1, 1, get_token(4))
     def test_hello(self):
@@ -266,7 +267,7 @@ token: "\\004\\000\\000\\000\\000\\000\\000\\000"
 ==========
 """
         try:
-            msg = self._fbsp.create_message_for(fbsp.MsgType.CANCEL, get_token(7))
+            msg: fbsp.CancelMessage = self._fbsp.create_message_for(fbsp.MsgType.CANCEL, get_token(7))
 
             msg.cancel_reqest.token = get_token(4)
             with self.assertRaises(fbsp.InvalidMessageError):
@@ -289,12 +290,12 @@ API code: 1
 ==========
 """
         try:
-            msg = self._fbsp.create_state_for(self.create_request(), fbsp.fbsd.STATE_RUNNING)
+            msg = self._fbsp.create_state_for(self.create_request(), fbsp.fbsd_proto.STATE_RUNNING)
             with self.assertRaises(fbsp.InvalidMessageError):
                 self.check_msg(msg, Origin.CLIENT)
-            parsed = self.check_msg(msg, Origin.SERVICE)
+            parsed: fbsp.StateMessage = self.check_msg(msg, Origin.SERVICE)
             self.print_msg(parsed)
-            self.assertEqual(parsed.state, fbsp.fbsd.STATE_RUNNING)
+            self.assertEqual(parsed.state, fbsp.fbsd_proto.STATE_RUNNING)
             self.assertEqual(expect, self.out.getvalue())
         except fbsp.InvalidMessageError as exc:
             self.fail(str(exc))

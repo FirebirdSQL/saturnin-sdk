@@ -36,15 +36,22 @@
 
 from typing import List
 import os
+import logging
 from socket import getfqdn
 from time import monotonic
 from struct import pack
-from uuid import UUID, uuid1
+import uuid
 import zmq
-import saturnin.sdk
-from .types import PeerDescriptor, AgentDescriptor, ClientError, TSession, TClient, TChannel
-from .base import ChannelManager, DealerChannel
-from .fbsp import Protocol, MsgType, Message, WelcomeMessage, uid2uuid
+from .. import VENDOR_UID
+from ..types import PeerDescriptor, AgentDescriptor, ClientError
+from ..base import ChannelManager, Channel, DealerChannel
+from ..client import ServiceClient
+from ..protocol.fbsp import Protocol, Session, MsgType, Message, HelloMessage, \
+     WelcomeMessage, uid2uuid
+
+# Logger
+
+log = logging.getLogger(__name__)
 
 # Functions
 
@@ -68,19 +75,19 @@ def print_data(data: str = None, indent: int = 4):
                          uid2uuid(str(data).splitlines()))))
     print('    ' + '~' * (80 - indent))
 
-def print_session(session: TSession):
+def print_session(session: Session):
     "Print information about remote peer."
     print('Service information:')
-    print(f'Peer uid:       {session.peer_id}')
-    print(f'Host:           {session.host}')
-    print(f'PID:            {session.pid}')
-    print(f'Agent ID:       {session.agent_id}')
-    print(f'Agent name:     {session.name}')
-    print(f'Agent version:  {session.version}')
-    print(f'Vendor ID:      {session.vendor}')
-    print(f'Platform ID:    {session.platform}')
-    print(f'Platform ver.:  {session.platform_version}')
-    print(f'Classification: {session.classification}')
+    print('Peer uid:      ', session.peer_id)
+    print('Host:          ', session.host)
+    print('PID:           ', session.pid)
+    print('Agent ID:      ', session.agent_id)
+    print('Agent name:    ', session.name)
+    print('Agent version: ', session.version)
+    print('Vendor ID:     ', session.vendor)
+    print('Platform ID:   ', session.platform)
+    print('Platform ver.: ', session.platform_version)
+    print('Classification:', session.classification)
 
 # Classes
 
@@ -101,15 +108,11 @@ Attributes:
         self.ctx: zmq.Context = context if context else zmq.Context.instance()
         self._cnt = 0
         self.protocol: Protocol = Protocol.instance()
-        self.peer: PeerDescriptor = PeerDescriptor(uuid1(), os.getpid(), getfqdn())
-        self.agent: AgentDescriptor = AgentDescriptor(UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e'),
-                                                      "Saturnin SDK test client",
-                                                      '1.0',
-                                                      saturnin.sdk.VENDOR_UID,
-                                                      'system/test',
-                                                      saturnin.sdk.PLATFORM_UID,
-                                                      saturnin.sdk.PLATFORM_VERSION
-                                                     )
+        self.peer: PeerDescriptor = PeerDescriptor(uuid.uuid1(), os.getpid(), getfqdn())
+        self.agent: AgentDescriptor = \
+            AgentDescriptor(uuid.UUID('7608dca4-46d3-11e9-8f39-5404a6a1fd6e'),
+                            "Saturnin SDK test client", '1.0',
+                            VENDOR_UID, 'system/test')
     def get_token(self) -> bytes:
         "Return new FBSP message token from internal counter."
         self._cnt += 1
@@ -117,7 +120,7 @@ Attributes:
     def _raw_handshake(self, socket: zmq.Socket):
         "Raw ZMQ FBSP handshake test."
         print("Sending HELLO:")
-        msg = self.protocol.create_message_for(MsgType.HELLO, self.get_token())
+        msg: HelloMessage = self.protocol.create_message_for(MsgType.HELLO, self.get_token())
         msg.peer.instance.uid = self.peer.uid.bytes
         msg.peer.instance.pid = self.peer.pid
         msg.peer.instance.host = self.peer.host
@@ -141,7 +144,7 @@ Attributes:
             raise ClientError("Service does not support required interface")
         self.interface_id = interface_id
         self.process_welcome(msg)
-    def _client_handshake(self, client: TClient):
+    def _client_handshake(self, client: ServiceClient):
         "Client handshake test."
         print_session(client.get_session())
     def _run(self, test_names: List[str], *args):
@@ -155,14 +158,15 @@ Attributes:
                 test = getattr(self, name)
                 test(*args)
             except Exception as exc:
-                print_title("ERROR", char="*")
+                print_title("FAILED", char="*")
                 print(exc)
+                #log.exception("Test FAILED")
         print_title("End")
         elapsed = monotonic() - start
         print(f"Ran {len(test_names)} tests in {elapsed} seconds")
     def process_welcome(self, msg: WelcomeMessage):
         """Called by raw handshake to allow processing of WELCOME message by descendants."""
-    def create_client(self, channel: TChannel) -> TClient:
+    def create_client(self, channel: Channel) -> ServiceClient:
         """Called to create Service client instance for testing."""
         raise NotImplementedError()
     def run_raw_tests(self, endpoint: str, test_names: List[str] = None):
@@ -171,6 +175,8 @@ Attributes:
                                                    if name.startswith('raw_')]
         test_list.insert(0, '_raw_handshake')
         socket = self.ctx.socket(zmq.DEALER)
+        socket.sndtimeo = 100
+        socket.LINGER = 1000
         socket.identity = b'test-runner:' + self.peer.uid.hex.encode('ascii')
         socket.connect(endpoint)
         self._run(test_list, socket)
@@ -187,9 +193,15 @@ Attributes:
             chn = DealerChannel(b'test-runner:' + self.peer.uid.hex.encode('ascii'), False)
             mngr.add(chn)
             with self.create_client(chn) as client:
-                client.open(endpoint)
+                try:
+                    client.open(endpoint)
+                except zmq.ZMQError as exc:
+                    print_title("ERROR", char="*")
+                    print(exc)
+                    #log.exception("Test FAILED")
+                    raise
                 self._run(test_list, client)
+        finally:
             mngr.remove(chn)
             chn.close()
-        finally:
             mngr.shutdown()

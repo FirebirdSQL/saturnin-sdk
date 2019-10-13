@@ -11,6 +11,8 @@ from os import path
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
 
+from saturnin.sdk import PLATFORM_VERSION
+
 HERE = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
@@ -22,7 +24,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='saturnin-sdk',
-    version='0.4.0',
+    version=PLATFORM_VERSION,
     description='Reference implementation of Firebird Butler specification(s) in Python',
     long_description=LONG_DESCRIPTION,
     long_description_content_type="text/markdown",
@@ -53,7 +55,7 @@ setup(
     keywords='Firebird Butler Services ZeroMQ Saturnin SDK',
     packages=['saturnin.sdk'],  # Required
     zip_safe=False,
-    install_requires=['pyzmq>=18.0.0', 'protobuf>=3.6.1'],
+    install_requires=['pyzmq>=18.0.0', 'protobuf>=3.9.0'],
     python_requires='>=3.6, <4',
     test_suite='nose.collector',
     data_files=[],

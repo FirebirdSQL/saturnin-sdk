@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
@@ -37,20 +36,24 @@
 """
 
 import logging
+import typing as t
 from logging.config import fileConfig
-from typing import Dict, List
 import sys
 import os
+import uuid
 from argparse import ArgumentParser, Action, ArgumentDefaultsHelpFormatter, FileType, \
      Namespace
 from configparser import ConfigParser, ExtendedInterpolation, DEFAULTSECT
 from time import sleep
 from pkg_resources import iter_entry_points
-from zmq import Context
-from saturnin.sdk.types import AddressDomain, SaturninError, ServiceTestType, ExecutionMode
-from saturnin.sdk.config import StrOption
-from saturnin.sdk.base import load
-from saturnin.sdk.classic import ServiceExecutor
+import zmq
+from ..types import  AddressDomain, ZMQAddress, ZMQAddressList, \
+     ServiceTestType, ExecutionMode, ServiceDescriptor, SaturninError, StopError
+from ..collections import Registry
+from ..config import UUIDOption, MicroserviceConfig, ServiceConfig
+from ..service import load
+from ..classic import ServiceExecutor
+from ..test.fbsp import BaseTestRunner
 
 __VERSION__ = '0.1'
 
@@ -58,15 +61,13 @@ SECTION_LOCAL_ADDRESS = 'local_address'
 SECTION_NODE_ADDRESS = 'node_address'
 SECTION_NET_ADDRESS = 'net_address'
 SECTION_SERVICE_UID = 'service_uid'
+SECTION_PEER_UID = 'peer_uid'
 
-# Exceptions
+# Functions
 
-class Error(Exception):
-    "Base exception for this module."
-
-class StopError(Error):
-    "Error that should stop furter processing."
-
+def title(text: str, size: int=80, char: str='='):
+    "Returns centered title surrounded by char."
+    return f"  {text}  ".center(size, char)
 
 #  Classes
 
@@ -78,14 +79,14 @@ class UpperAction(Action):
 class ServiceInfo:
     """Service information record.
 """
-    def __init__(self, section_name, descriptor):
-        self.section_name = section_name
-        self.descriptor = descriptor
-        self.config = load(descriptor.config)()
-        self.executor = ServiceExecutor(section_name, descriptor)
-        self.test = None
-        self.test_type = ServiceTestType.CLIENT
-        self.test_endpoint = None
+    def __init__(self, section_name: str, descriptor: ServiceDescriptor, peer_uid: uuid.UUID):
+        self.section_name: str = section_name
+        self.descriptor: ServiceDescriptor = descriptor
+        self.config: MicroserviceConfig = descriptor.config()
+        self.executor: ServiceExecutor = ServiceExecutor(descriptor, peer_uid, section_name)
+        self.test: BaseTestRunner = None
+        self.test_type: ServiceTestType = ServiceTestType.CLIENT
+        self.test_endpoint: ZMQAddress = None
     def configure(self, conf) -> None:
         "Load configuration from ConfigParser."
         self.config.load_from(conf, self.section_name)
@@ -100,20 +101,26 @@ class ServiceInfo:
             self.executor.terminate()
     def prepare_test(self) -> None:
         "Prepare service test for execution."
-        self.test = load(self.descriptor.tests)(Context.instance())
-        if self.config.execution_mode == ExecutionMode.THREAD:
-            for endpoint in self.config.endpoints:
-                if endpoint.domain == AddressDomain.LOCAL:
-                    self.test_endpoint = endpoint
-                    break
-        if self.test_endpoint is None or self.config.execution_mode == ExecutionMode.PROCESS:
-            for endpoint in self.config.endpoints:
-                if endpoint.domain in [AddressDomain.NODE, AddressDomain.NETWORK]:
-                    self.test_endpoint = endpoint
-                    break
-        if self.test_endpoint is None:
-            raise StopError("Missing suitable service endpoint to run test for '%s'" %
-                            self.section_name)
+        if not self.descriptor.tests:
+            raise StopError("Service %s:%s does not have tests" % (self.descriptor.agent.uid,
+                                                                     self.descriptor.agent.name))
+        self.test = load(self.descriptor.tests)(zmq.Context.instance())
+        if isinstance(self.config, ServiceConfig):
+            if self.config.execution_mode.value == ExecutionMode.THREAD:
+                for endpoint in self.config.endpoints.value:
+                    if endpoint.domain == AddressDomain.LOCAL:
+                        self.test_endpoint = endpoint
+                        break
+            if self.test_endpoint is None or self.config.execution_mode.value == ExecutionMode.PROCESS:
+                for endpoint in self.config.endpoints.value:
+                    if endpoint.domain in [AddressDomain.NODE, AddressDomain.NETWORK]:
+                        self.test_endpoint = endpoint
+                        break
+            if self.test_endpoint is None:
+                raise StopError("Missing suitable service endpoint to run test for '%s'" %
+                                self.section_name)
+        else:
+            raise StopError("Can't test microservices.")
     def run_test(self) -> None:
         "Run test on service."
         if self.test_type == ServiceTestType.CLIENT:
@@ -121,23 +128,23 @@ class ServiceInfo:
         else:
             self.test.run_raw_tests(self.test_endpoint)
 
-    name = property(lambda self: self.descriptor.agent.name, doc="Service name")
-    endpoints = property(lambda self: self.executor.endpoints, doc="Service endpoints")
-
+    name: str = property(lambda self: self.descriptor.agent.name, doc="Service name")
+    uid: uuid.UUID = property(lambda self: self.executor.uid, doc="Service Peer ID")
+    endpoints: ZMQAddressList = property(lambda self: self.executor.endpoints,
+                                          doc="Service endpoints")
 
 class Runner:
     """Service runner.
 """
     def __init__(self):
-        self.parser = ArgumentParser(prog='svc_run',
-                                     formatter_class=ArgumentDefaultsHelpFormatter,
-                                     description="Saturnin service runner (classic version)")
+        self.parser: ArgumentParser = \
+            ArgumentParser(prog='svc_run',
+                           formatter_class=ArgumentDefaultsHelpFormatter,
+                           description="Saturnin service runner (classic version)")
         self.parser.add_argument('--version', action='version', version='%(prog)s '+__VERSION__)
         #
-        group = self.parser.add_argument_group("positional arguments")
-        group.add_argument('job_name', nargs='*', help="Job name")
-        #
         group = self.parser.add_argument_group("run arguments")
+        group.add_argument('-j', '--job', nargs='*', help="Job name")
         group.add_argument('-c', '--config', metavar='FILE',
                            type=FileType(mode='r', encoding='utf8'),
                            help="Configuration file")
@@ -159,20 +166,21 @@ class Runner:
                            choices=[x.lower() for x in logging._nameToLevel
                                     if isinstance(x, str)],
                            help="Logging level")
-        self.parser.set_defaults(log_level='WARNING', job_name=['services'],
+        group.add_argument('--trace', action='store_true',
+                           help="Log unexpected errors with stack trace")
+        self.parser.set_defaults(log_level='WARNING', job=['services'],
                                  config='svc_run.cfg', output_dir='${here}')
         #
-        self.conf = ConfigParser(interpolation=ExtendedInterpolation())
-        self.opt_svc_name = StrOption('service_name',
-                                      "Service name (as specified in the Service Descriptor)",
-                                      required=True)
+        self.conf: ConfigParser = ConfigParser(interpolation=ExtendedInterpolation())
+        self.opt_svc_uid: UUIDOption = UUIDOption('service_uid',
+                                                  "Service UID (agent.uid in the Service Descriptor)",
+                                                  required=True)
         self.args: Namespace = None
         self.config_filename: str = None
         self.log: logging.Logger = None
-        self.service_registry: Dict = None
-        self.name_map: Dict = None
-        self.services: List = []
-        self.test_service = None
+        self.service_registry: Registry = Registry()
+        self.services: t.List[ServiceInfo] = []
+        self.test_service: ServiceInfo = None
     def verbose(self, *args, **kwargs) -> None:
         "Log verbose output, not propagated to upper loggers."
         if self.args.verbose:
@@ -188,11 +196,11 @@ class Runner:
         self.conf[SECTION_NODE_ADDRESS] = {}
         self.conf[SECTION_NET_ADDRESS] = {}
         self.conf[SECTION_SERVICE_UID] = {}
+        self.conf[SECTION_PEER_UID] = {}
         #
         self.conf.read_file(self.args.config)
         # Defaults
         self.conf[DEFAULTSECT]['here'] = os.getcwd()
-        #self.conf[DEFAULTSECT]['job_name'] = self.args.job_name
         if self.args.output_dir is None:
             self.conf[DEFAULTSECT]['output_dir'] = os.getcwd()
         else:
@@ -202,14 +210,15 @@ class Runner:
             self.args.config.seek(0)
             fileConfig(self.args.config)
         else:
-            logging.basicConfig(format='%(asctime)s %(processName)s:%(threadName)s:%(name)s %(levelname)s: %(message)s')
+            logging.basicConfig(format='%(asctime)s %(processName)s:'\
+                                '%(threadName)s:%(name)s %(levelname)s: %(message)s')
         logging.getLogger().setLevel(self.args.log_level)
         # Script output configuration
         self.log = logging.getLogger('svc_run')
         self.log.setLevel(logging.DEBUG)
         self.log.propagate = False
         if not self.args.log_only:
-            output = logging.StreamHandler(sys.stdout)
+            output: logging.StreamHandler = logging.StreamHandler(sys.stdout)
             output.setFormatter(logging.Formatter())
             lvl = logging.INFO
             if self.args.verbose:
@@ -219,31 +228,17 @@ class Runner:
             output.setLevel(lvl)
             self.log.addHandler(output)
         self.args.config.close()
-        #self.test_logging()
-        #
-    def test_logging(self) -> None:
-        for name in ('', 'svc_run', 'saturnin.sdk.base', 'saturnin.sdk.fbsp', 'saturnin.sdk.classic'):
-            l = logging.getLogger(name)
-            print("Logger(%s): %s, propagate(%s), parent(%s)" % (l.name, l.getEffectiveLevel(), l.propagate, l.parent.name if l.parent else ''))
-            l.debug("(%s:%s) Test", name, 'debug')
-            l.info("(%s:%s) Test", name, 'info')
-            l.warning("(%s:%s) Test", name, 'warning')
-            l.error("(%s:%s) Test", name, 'error')
-            l.critical("(%s:%s) Test", name, 'critical')
-            for h in l.handlers:
-                print("Handler(%s:%s): %s" % (h.__class__.__name__, h.get_name(), h.level))
     def prepare(self) -> None:
         "Prepare list of services to run."
         try:
             # Load descriptors for registered services
-            service_descriptors = (entry.load() for entry in iter_entry_points('saturnin.service'))
-            self.service_registry = dict((sd.agent.uid, sd) for sd in service_descriptors)
-            self.name_map = dict((sd.agent.name, sd) for sd in self.service_registry.values())
+            self.service_registry.extend(entry.load() for entry in
+                                         iter_entry_points('saturnin.service'))
             self.conf[SECTION_SERVICE_UID] = dict((sd.agent.name, sd.agent.uid.hex) for sd
-                                                  in self.service_registry.values())
+                                                  in self.service_registry)
             # Create list of service sections
             sections = []
-            for job_name in self.args.job_name:
+            for job_name in self.args.job:
                 job_section = 'run_%s' % job_name
                 if self.conf.has_section(job_name):
                     sections.append(job_name)
@@ -259,20 +254,24 @@ class Runner:
                 else:
                     raise StopError("Configuration does not have section '%s' or '%s'" %
                                     (job_name, job_section))
+            # Assign Peer IDs to service sections (instances)
+            self.conf[SECTION_PEER_UID] = dict((svc_section, uuid.uuid1().hex) for
+                                               svc_section in sections)
             # Validate configuration of services
             for svc_section in sections:
-                if not self.conf.has_option(svc_section, self.opt_svc_name.name):
-                    raise StopError("Missing '%s' option in section '%s'" % (self.opt_svc_name.name,
+                if not self.conf.has_option(svc_section, self.opt_svc_uid.name):
+                    raise StopError("Missing '%s' option in section '%s'" % (self.opt_svc_uid.name,
                                                                              svc_section))
-                self.opt_svc_name.load_from(self.conf, svc_section)
-                svc_name = self.opt_svc_name.value
-                if not svc_name in self.name_map:
-                    raise StopError("Unknown service '%s'" % svc_name)
-                svc_info = ServiceInfo(svc_section, self.name_map[svc_name])
-                svc_info.configure(self.conf)
+                self.opt_svc_uid.load_from(self.conf, svc_section)
+                svc_uid = self.opt_svc_uid.value
+                if not svc_uid in self.service_registry:
+                    raise StopError("Unknown service '%s'" % svc_uid)
+                svc_info = ServiceInfo(svc_section, self.service_registry[svc_uid],
+                                       uuid.UUID(self.conf[SECTION_PEER_UID][svc_section]))
                 try:
+                    svc_info.configure(self.conf)
                     svc_info.config.validate()
-                except SaturninError as exc:
+                except (SaturninError, TypeError, ValueError) as exc:
                     raise StopError("Error in configuration section '%s'\n%s" % \
                                     (svc_section, str(exc)))
                 self.services.append(svc_info)
@@ -284,57 +283,66 @@ class Runner:
                         self.test_service = svc
                         break
                 if self.test_service is None:
-                    raise StopError("Configuration does not have section '%s'" % test_section)
+                    raise StopError("Section '%s' is not related to active service" % test_section)
                 if len(self.args.test) > 1:
                     value = self.args.test[1].upper()
-                    if value in ServiceTestType._member_map_:
-                        self.test_service.test_type = ServiceTestType._member_map_[value]
+                    if value in ServiceTestType.get_member_map():
+                        self.test_service.test_type = ServiceTestType.get_member_map()[value]
                     else:
-                        raise StopError("Illegal value '%s' for enum type '%s'" % (value,
-                                                                                   ServiceTestType.__name__))
+                        raise StopError("Illegal value '%s' for enum type '%s'"
+                                        % (value, ServiceTestType.__name__))
                 self.test_service.prepare_test()
             #
         except StopError as exc:
             self.log.error(str(exc))
+            self.services.clear()
             self.terminate()
         except Exception as exc:
-            self.log.exception('Unexpected error: %s', str(exc))
+            if self.args.trace:
+                self.log.exception('Unexpected error: %s', str(exc))
+            else:
+                self.log.error('Unexpected error: %s', str(exc))
+            self.services.clear()
             self.terminate()
     def run(self) -> None:
         "Run prepared services."
         try:
             for svc in self.services:
                 # print configuration
-                self.verbose("Prepared to run task '%s':" % svc.section_name)
-                self.verbose("  service_name = %s" % svc.name)
+                self.verbose(title("Task '%s'" % svc.section_name, char='-'))
+                self.verbose("service_uid = %s [%s]" % (svc.uid, svc.name))
                 for option in svc.config.options.values():
-                    self.verbose("  %s" % option.get_printout())
+                    self.verbose("%s" % option.get_printout())
             if self.test_service is not None:
-                self.verbose("Prepared to run test on task '%s':" %
-                             self.test_service.section_name)
-                self.verbose("  service_name = %s" % self.test_service.name)
-                self.verbose("  test_type = %s" % self.test_service.test_type.name)
-                self.verbose("  test_endpoint = %s" % self.test_service.test_endpoint)
+                self.verbose(title("Test on task '%s'" % self.test_service.section_name,
+                                   char='-'))
+                self.verbose("service_uid = %s [%s]" % (self.test_service.uid,
+                                                        self.test_service.name))
+                self.verbose("test_type = %s" % self.test_service.test_type.name)
+                self.verbose("test_endpoint = %s" % self.test_service.test_endpoint)
             if not self.args.dry_run:
+                self.verbose(title("Starting services"))
                 for svc in self.services:
-                    self.log.info("Starting service '%s', task '%s'" % (svc.name,
-                                                                        svc.section_name))
                     # refresh configuration to fetch actual addresses
+                    self.log.info("Starting service '%s', task '%s'", svc.name,
+                                  svc.section_name)
                     svc.configure(self.conf)
                     svc.start()
                     if svc.endpoints:
                         self.verbose("Started with endpoints: " + ', '.join(svc.endpoints))
-                    # Update addresses
-                    for endpoint in svc.endpoints:
-                        if endpoint.domain == AddressDomain.LOCAL:
-                            self.conf[SECTION_LOCAL_ADDRESS][svc.section_name] = endpoint
-                        elif endpoint.domain == AddressDomain.NODE:
-                            self.conf[SECTION_NODE_ADDRESS][svc.section_name] = endpoint
-                        else:
-                            self.conf[SECTION_NET_ADDRESS][svc.section_name] = endpoint
+                        # Update addresses
+                        for endpoint in svc.endpoints:
+                            if endpoint.domain == AddressDomain.LOCAL:
+                                self.conf[SECTION_LOCAL_ADDRESS][svc.section_name] = endpoint
+                            elif endpoint.domain == AddressDomain.NODE:
+                                self.conf[SECTION_NODE_ADDRESS][svc.section_name] = endpoint
+                            else:
+                                self.conf[SECTION_NET_ADDRESS][svc.section_name] = endpoint
                 if self.test_service is not None:
+                    self.verbose(title("Running test", char='-'))
                     self.test_service.run_test()
                 else:
+                    self.verbose(title("Running", char='-'))
                     try:
                         self.log.info("Press ^C to stop running services...")
                         while self.services:
@@ -343,49 +351,51 @@ class Runner:
                                        if svc.executor.is_running()]
                             if len(running) != len(self.services):
                                 self.services = running
-                                for svc in (set(self.services).difference(set(running))):
-                                    self.log.info("Task '%s' (%s) finished" % (svc.section_name,
-                                                                               svc.name))
+                                for svc in set(self.services).difference(set(running)):
+                                    self.log.info("Task '%s' (%s) finished",
+                                                  svc.section_name, svc.name)
                     except KeyboardInterrupt:
                         self.log.info("Terminating on user request...")
+                    else:
+                        self.log.info("All services terminated.")
+                self.verbose(title("Shutdown", char='-'))
             #
         except StopError as exc:
             self.log.error(str(exc))
             self.terminate()
         except Exception as exc:
-            self.log.exception('Unexpected error: %s', str(exc))
+            if self.args.trace:
+                self.log.error('Unexpected error: %s', exc)
+            else:
+                self.log.error('Unexpected error: %s', exc)
             self.terminate()
-    def shutdown(self):
+    def shutdown(self) -> None:
         "Shut down the runner."
         l = self.services.copy()
         l.reverse()
         for svc in l:
             if svc.executor.is_running():
-                self.log.info("Stopping service '%s', task '%s'" % (svc.name,
-                                                                    svc.section_name))
+                self.log.info("Stopping service '%s' %s, task '%s'", svc.name,
+                              svc.executor.mode.name.lower(), svc.section_name)
                 svc.stop()
-            else:
-                self.log.info("Service '%s', task '%s' stopped already" % (svc.name,
-                                                                           svc.section_name))
+            elif not self.args.dry_run:
+                self.log.info("Service '%s', task '%s' stopped already", svc.name,
+                              svc.section_name)
 
         logging.debug("Terminating ZMQ context")
-        Context.instance().term()
+        # zmq.Context.instance().term()
         logging.shutdown()
-    def terminate(self):
+    def terminate(self) -> t.NoReturn:
         "Terminate execution with exit code 1."
         try:
             self.shutdown()
         finally:
             sys.exit(1)
 
-
 def main():
     "Main function"
-    runner = Runner()
+    runner: Runner = Runner()
     runner.initialize()
     runner.prepare()
     runner.run()
     runner.shutdown()
-
-if __name__ == '__main__':
-    main()

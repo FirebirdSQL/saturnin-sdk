@@ -34,37 +34,49 @@
 """Saturnin SDK - Type definitions
 """
 
-from typing import TypeVar, NamedTuple, Optional, Any, List, Tuple, Callable
-from enum import Enum, IntEnum, Flag, auto
-from uuid import UUID
+import typing as t
+import enum
+import uuid
+from dataclasses import dataclass
 from saturnin.sdk import PLATFORM_UID, PLATFORM_VERSION
 
 # Type annotation types
 
-TMessage = TypeVar('TMessage', bound='BaseMessage')
-TProtocol = TypeVar('TProtocol', bound='BaseProtocol')
-TSession = TypeVar('TSession', bound='BaseSession')
-TChannel = TypeVar('TChannel', bound='BaseChannel')
-TMessageHandler = TypeVar('TMessageHandler', bound='BaseMessageHandler')
-TServiceImpl = TypeVar('TServiceImpl', bound='BaseServiceImpl')
-TService = TypeVar('TService', bound='BaseService')
-TClient = TypeVar('TClient', bound='ServiceClient')
-TZMQAddress = TypeVar('ZMQAddress', bound='ZMQAddress')
-TZMQAddressList = List[TZMQAddress]
-TConfig = TypeVar('TConfig', bound='Config')
-TConfigList = List[TConfig]
-TStringList = List[str]
-TEnum = TypeVar('TEnum', bound='Enum')
-TMessageFactory = Callable[[], TMessage]
-Token = bytearray
+TStringList = t.List[str]
+TConfig = t.TypeVar('TConfig', bound='Config')
+TSupplement = t.Optional[t.Dict[str, t.Any]]
+Token = t.NewType('Token', bytearray)
+RoutingID = t.NewType('RoutingID', bytes)
 
 # Enums
 
+class Enum(enum.IntEnum):
+    "Extended enumeration type."
+    @classmethod
+    def get_member_map(cls) -> t.Dict[str, 'Enum']:
+        return cls._member_map_
+    @classmethod
+    def get_value_map(cls) -> t.Dict[str, 'Enum']:
+        return cls._value2member_map_
+    @classmethod
+    def auto(cls) -> int:
+        return enum.auto()
+
+
+class Flag(enum.IntFlag):
+    "Extended flag type."
+    def get_flags(self) -> t.List['Flag']:
+        return [flag for flag in self._member_map_.values()
+                if flag.value != 0 and flag in self]
+    def get_flag_names(self) -> t.List['Flag']:
+        return [flag.name for flag in self._member_map_.values()
+                if flag.value != 0 and flag in self]
+
 class Origin(Enum):
     "Origin of received message in protocol context."
-    ANY = auto()
-    SERVICE = auto()
-    CLIENT = auto()
+    ANY = Enum.auto()
+    SERVICE = Enum.auto()
+    CLIENT = Enum.auto()
     # Aliases
     UNKNOWN = ANY
     PROVIDER = SERVICE
@@ -72,14 +84,14 @@ class Origin(Enum):
 
 class SocketMode(Enum):
     "ZMQ socket mode"
-    UNKNOWN = auto()
-    BIND = auto()
-    CONNECT = auto()
+    UNKNOWN = Enum.auto()
+    BIND = Enum.auto()
+    CONNECT = Enum.auto()
 
 class Direction(Flag):
     "ZMQ socket direction of transmission"
-    IN = auto()
-    OUT = auto()
+    IN = Enum.auto()
+    OUT = Enum.auto()
     BOTH = OUT | IN
 
 class DependencyType(Enum):
@@ -95,14 +107,14 @@ class ExecutionMode(Enum):
     THREAD = 1    # Run in thread
     PROCESS = 2   # Run in separate process
 
-class AddressDomain(IntEnum):
+class AddressDomain(Enum):
     "ZMQ address domain"
     UNKNOWN_DOMAIN = 0 # Not a valid option, defined only to handle undefined values
     LOCAL = 1          # Within process (inproc)
     NODE = 2           # On single node (ipc or tcp loopback)
     NETWORK = 3        # Network-wide (ip address or domain name)
 
-class TransportProtocol(IntEnum):
+class TransportProtocol(Enum):
     "ZMQ transport protocol"
     UNKNOWN_PROTOCOL = 0 # Not a valid option, defined only to handle undefined values
     INPROC = 1
@@ -112,7 +124,7 @@ class TransportProtocol(IntEnum):
     EPGM = 5
     VMCI = 6
 
-class SocketType(IntEnum):
+class SocketType(Enum):
     "ZMQ socket type"
     UNKNOWN_TYPE = 0 # Not a valid option, defined only to handle undefined values
     DEALER = 1
@@ -126,7 +138,7 @@ class SocketType(IntEnum):
     STREAM = 9
     PAIR = 10
 
-class SocketUse(IntEnum):
+class SocketUse(Enum):
     "Socket use"
     UNKNOWN_USE = 0 # Not a valid option, defined only to handle undefined values
     PRODUCER = 1    # Socket used to provide data to peers
@@ -138,18 +150,26 @@ class ServiceType(Enum):
     UNKNOWN_SVC_TYPE = 0  # Not a valid option, defined only to handle undefined values
     DATA_PROVIDER = 1     # Data Pipe Service that collects and pass on data.
     DATA_FILTER = 2       # Data Pipe Service that process data from input and sends results to output
-    DATA_CONSUMER = 3     # Data Pipe Servuce that consumes input data
-    PROCESSING = 4        # Service for data processing
+    DATA_CONSUMER = 3     # Data Pipe Service that consumes input data
+    PROCESSING = 4        # Service for REQEST/REPLY data processing
     EXECUTOR = 5          # Service that does things on request
     CONTROL = 6           # Service that manages other services
 
-class ServiceTestType(IntEnum):
+class ServiceFacilities(Flag):
+    "Service Facilities"
+    FBSP_SOCKET = Enum.auto()   # Standard Butler Service with one socket for FBSP communication
+    INPUT_SERVER = Enum.auto()  # Service has/can have standard data pipe INPUT in SERVER mode
+    INPUT_CLIENT = Enum.auto()  # Service has/can have standard data pipe INPUT in CLIENT mode
+    OUTPUT_SERVER = Enum.auto() # Service has/can have standard data pipe OUTPUT in SERVER mode
+    OUTPUT_CLIENT = Enum.auto() # Service has/can have standard data pipe OUTPUT in CLIENT mode
+
+class ServiceTestType(Enum):
     "Service test type"
     UNKNOWN_TEST_TYPE = 0 # Not a valid option, defined only to handle undefined values
     CLIENT = 1            # Test uses service Client
     RAW = 2               # Test uses direct ZMQ messaging
 
-class State(IntEnum):
+class State(Enum):
     "General state information."
     UNKNOWN_STATE = 0
     READY = 1
@@ -164,9 +184,25 @@ class State(IntEnum):
     STOPPED = SUSPENDED
     TERMINATED = ABORTED
 
-# Named tuples
+class PipeSocket(Enum):
+    "Data Pipe Socket identification"
+    UNKNOWN_PIPE_SOCKET = 0 # Not a valid option, defined only to handle undefined values
+    INPUT = 1
+    OUTPUT = 2
+    MONITOR = 3
 
-class InterfaceDescriptor(NamedTuple):
+# Dataclasses
+
+class Distinct:
+    """Base class for dataclasses with distinct instances.
+"""
+    def get_key(self) -> t.Any:
+        "Returns instance key. Used for instance hash computation."
+        raise NotImplementedError
+    __hash__ = lambda self: hash(self.get_key())
+
+@dataclass(eq=True, order=True, frozen=True)
+class InterfaceDescriptor(Distinct):
     """Interface descriptor.
 
 Attributes:
@@ -176,13 +212,15 @@ Attributes:
     :number:   Interface Identification Number assigned by Service
     :requests: Enum for interface FBSP request codes.
 """
-    uid: UUID
+    uid: uuid.UUID
     name: str
     revision: int
     number: int
-    requests: IntEnum
+    requests: Enum
+    get_key = lambda self: self.uid
 
-class AgentDescriptor(NamedTuple):
+@dataclass(eq=True, order=False, frozen=True)
+class AgentDescriptor(Distinct):
     """Service or Client descriptor.
 
 Attributes:
@@ -195,16 +233,18 @@ Attributes:
     :platform_version: Butler platform version string.
     :supplement:       Optional list of supplemental information.
 """
-    uid: UUID
+    uid: uuid.UUID
     name: str
     version: str
-    vendor_uid: UUID
+    vendor_uid: uuid.UUID
     classification: str
-    platform_uid: UUID = PLATFORM_UID
+    platform_uid: uuid.UUID = PLATFORM_UID
     platform_version: str = PLATFORM_VERSION
-    supplement: Optional[List[Any]] = None
+    supplement: TSupplement = None
+    get_key = lambda self: self.uid
 
-class PeerDescriptor(NamedTuple):
+@dataclass(eq=True, order=False, frozen=True)
+class PeerDescriptor(Distinct):
     """Peer descriptor.
 
 Attributes:
@@ -213,12 +253,14 @@ Attributes:
     :host:       Host name.
     :supplement: Optional list of supplemental information.
 """
-    uid: UUID
+    uid: uuid.UUID
     pid: int
     host: str
-    supplement: Optional[List[Any]] = None
+    supplement: TSupplement = None
+    get_key = lambda self: self.uid
 
-class ServiceDescriptor(NamedTuple):
+@dataclass(eq=True, order=False, frozen=True)
+class ServiceDescriptor(Distinct):
     """Service descriptor.
 
 Attributes:
@@ -227,6 +269,7 @@ Attributes:
     :dependencies:   List of (DependencyType, UUID) tuples.
     :execution_mode: Preferred execution mode.
     :service_type:   Type of service.
+    :facilities:     Service facilities
     :description:    Text describing the service.
     :implementation: Locator string for service implementation class.
     :container:      Locator string for service container class.
@@ -235,16 +278,18 @@ Attributes:
     :tests:          Locator string for service test class.
 """
     agent: AgentDescriptor
-    api: Optional[List[InterfaceDescriptor]]
-    dependencies: List[Tuple[DependencyType, UUID]]
+    api: t.Optional[t.List[InterfaceDescriptor]]
+    dependencies: t.List[t.Tuple[DependencyType, uuid.UUID]]
     execution_mode: ExecutionMode
     service_type: ServiceType
+    facilities: ServiceFacilities
     description: str
     implementation: str
     container: str
-    config: Callable[[], TConfig]
+    config: t.Callable[[], TConfig]
     client: str
     tests: str
+    get_key = lambda self: self.agent.uid
 
 # Classes
 
@@ -254,12 +299,12 @@ class ZMQAddress(str):
 Descendant from builtin `str` type with additional R/O properties protocol, address and
 domain.
 """
-    def __new__(cls, value):
-        if not isinstance(value, str):
-            value = value.encode('utf8')
+    def __new__(cls, value: t.AnyStr):
+        if isinstance(value, bytes):
+            value = t.cast(bytes, value).decode('utf8')
         if '://' in value:
             protocol, _ = value.split('://', 1)
-            if protocol.upper() not in TransportProtocol._member_map_:
+            if protocol.upper() not in TransportProtocol.get_member_map():
                 raise ValueError("Uknown protocol '%s'" % protocol)
         else:
             raise ValueError("Protocol specification required.")
@@ -267,7 +312,7 @@ domain.
     def __get_protocol(self) -> TransportProtocol:
         if '://' in self:
             protocol, _ = self.split('://', 1)
-            return TransportProtocol._member_map_[protocol.upper()]
+            return TransportProtocol.get_member_map()[protocol.upper()]
         return TransportProtocol.UNKNOWN_PROTOCOL
     def __get_address(self) -> str:
         if '://' in self:
@@ -291,6 +336,86 @@ domain.
     address: str = property(__get_address, doc="Address")
     domain: AddressDomain = property(__get_domain, doc="Address domain")
 
+ZMQAddressList = t.List[ZMQAddress]
+
+def update_meta(self, other):
+    "Helper function for :class:`LateBindingProperty` class."
+    self.__name__ = other.__name__
+    self.__doc__ = other.__doc__
+    self.__dict__.update(other.__dict__)
+    return self
+
+class LateBindingProperty(property):
+    """Property class that binds to getter/setter/deleter methods when **instance**
+of class that define the property is created. This allows you to override
+these methods in descendant classes (if they are not private) without
+necessity to redeclare the property itself in descendant class.
+
+Recipe from Tim Delaney, 2005/03/31
+http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/408713
+
+Example:
+    .. code-block:: python
+
+        class C(object):
+            def getx(self):
+                print 'C.getx'
+                return self._x
+            def setx(self, x):
+                print 'C.setx'
+                self._x = x
+            def delx(self):
+                print 'C.delx'
+                del self._x
+            x = LateBindingProperty(getx, setx, delx)
+
+        class D(C):
+            def setx(self, x):
+                print 'D.setx'
+                super(D, self).setx(x)
+            def delx(self):
+                print 'D.delx'
+                super(D, self).delx()
+
+        c = C()
+        c.x = 1
+        c.x
+        c.x
+        del c.x
+        print
+        d = D()
+        d.x = 1
+        d.x
+        d.x
+        del d.x
+
+This has the advantages that:
+    - You get back an actual property object (with attendant memory savings, performance increases, etc);
+    - It's the same syntax as using property(fget, fset, fdel, doc) except for the name;
+    - It will fail earlier (when you define the class as opposed to when you use it).
+    - It's shorter ;)
+    - If you inspect the property you will get back functions with the correct `__name__`, `__doc__`, etc.
+
+"""
+    def __new__(cls, fget=None, fset=None, fdel=None, doc=None):
+        if fget is not None:
+            def __get__(obj, objtype=None, name=fget.__name__):
+                fget = getattr(obj, name)
+                return fget()
+            fget = update_meta(__get__, fget)
+        if fset is not None:
+            def __set__(obj, value, name=fset.__name__):
+                fset = getattr(obj, name)
+                return fset(value)
+            fset = update_meta(__set__, fset)
+        if fdel is not None:
+            def __delete__(obj, name=fdel.__name__):
+                fdel = getattr(obj, name)
+                return fdel()
+            fdel = update_meta(__delete__, fdel)
+        return property(fget, fset, fdel, doc)
+
+
 #  Exceptions
 
 class SaturninError(Exception):
@@ -300,8 +425,8 @@ Uses `kwargs` to set attributes on exception instance.
 """
     def __init__(self, *args, **kwargs):
         super().__init__(*args)
-        for attr, value in kwargs.items():
-            setattr(self, attr, value)
+        for name, value in kwargs.items():
+            setattr(self, name, value)
 class InvalidMessageError(SaturninError):
     "A formal error was detected in a message"
 class ChannelError(SaturninError):
@@ -310,3 +435,5 @@ class ServiceError(SaturninError):
     "Error raised by service"
 class ClientError(SaturninError):
     "Error raised by Client"
+class StopError(SaturninError):
+    "Error that should stop furter processing."

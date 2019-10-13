@@ -35,12 +35,11 @@
 """
 
 import logging
-from typing import Dict
-from firebird.butler import fbsp_pb2 as pb
-from .types import TChannel, TSession, ClientError, AgentDescriptor, PeerDescriptor, \
-     InterfaceDescriptor
-from .fbsp import MsgType, WelcomeMessage, ClientMessageHandler, \
-     validate_hello_pb
+import typing as t
+from .types import InterfaceDescriptor, PeerDescriptor, AgentDescriptor, ClientError
+from .base import Channel
+from .protocol import fbsp
+from .protocol.fbsp import fbsp_proto
 
 # Logger
 
@@ -48,7 +47,7 @@ log = logging.getLogger(__name__)
 
 # Classes
 
-class ServiceClient(ClientMessageHandler):
+class ServiceClient(fbsp.ClientMessageHandler):
     """Base Service Client
 
 Attributes:
@@ -58,16 +57,22 @@ Abstract methods:
     :get_handlers:  Returns Dict for mapping FBSP messages sent by service to handler methods.
     :get_interface: Returns descriptor for service interface used by client.
 """
-    def __init__(self, chn: TChannel, peer: PeerDescriptor, agent: AgentDescriptor):
-        log.debug("%s.__init__", self.__class__.__name__)
+    def __init__(self, chn: Channel, peer: PeerDescriptor, agent: AgentDescriptor):
+        if __debug__: log.debug("%s.__init__", self.__class__.__name__)
         super().__init__()
         chn.set_handler(self)
-        self.hello_df: pb.FBSPHelloDataframe = pb.FBSPHelloDataframe()
+        self.hello_df: fbsp_proto.FBSPHelloDataframe = fbsp_proto.FBSPHelloDataframe()
         self.peer: PeerDescriptor = peer
         self.agent: AgentDescriptor = agent
-        self.interface_id = None
-        self.__handlers: Dict = None
-    def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:
+        self.interface_id: int = None
+        self.__handlers: t.Dict = None
+    def handle_exception(self, session: fbsp.Session, msg: fbsp.Message, exc: Exception) -> None:
+        """Exception handler called by `dispatch()` on exception in handler. The exception
+is reraised in client, because it shouold be handled elsewhere and not swallowed by
+`dispatch()`.
+"""
+        raise exc
+    def handle_welcome(self, session: fbsp.Session, msg: fbsp.WelcomeMessage) -> None:
         """Handle WELCOME message.
 
 Save WELCOME message into session.greeting, notes number assigned by service to used
@@ -76,8 +81,8 @@ interface and updates message handlers.
 Raises:
     :ClientError: For unexpected WELCOME, or when service does not support required interface.
 """
-        log.debug("%s.on_welcome", self.__class__.__name__)
-        super().on_welcome(session, msg)
+        if __debug__: log.debug("%s.handle_welcome", self.__class__.__name__)
+        super().handle_welcome(session, msg)
         intf_uid = self.get_interface().uid.bytes
         interface_id = None
         for api in msg.peer.api:
@@ -93,7 +98,7 @@ Raises:
     def get_interface(self) -> InterfaceDescriptor:
         """Returns descriptor for service interface used by client."""
         raise NotImplementedError()
-    def get_handlers(self, api_number: int) -> Dict:
+    def get_handlers(self, api_number: int) -> t.Dict:
         """Returns Dict for mapping FBSP messages sent by service to handler methods."""
         raise NotImplementedError()
     def open(self, endpoint: str, timeout: int = 1000) -> None:
@@ -107,10 +112,10 @@ Arguments:
 Raises:
     True if service was sucessfuly connected in specified time limit.
 """
-        log.debug("%s.open", self.__class__.__name__)
+        if __debug__: log.debug("%s.open", self.__class__.__name__)
         session = self.connect_peer(endpoint)
         token = self.new_token()
-        hello = self.protocol.create_message_for(MsgType.HELLO, token)
+        hello: fbsp.HelloMessage = self.protocol.create_message_for(fbsp.MsgType.HELLO, token)
         self.hello_df.instance.uid = self.peer.uid.bytes
         self.hello_df.instance.pid = self.peer.pid
         self.hello_df.instance.host = self.peer.host
@@ -120,7 +125,7 @@ Raises:
         self.hello_df.client.vendor.uid = self.agent.vendor_uid.bytes
         self.hello_df.client.platform.uid = self.agent.platform_uid.bytes
         self.hello_df.client.platform.version = self.agent.platform_version
-        validate_hello_pb(self.hello_df)
+        fbsp.validate_hello_pb(self.hello_df)
         hello.peer.CopyFrom(self.hello_df)
         try:
             self.send(hello, session, defer=False)
@@ -131,7 +136,7 @@ Raises:
             raise
     def close(self):
         "Close connection to Service."
-        log.debug("%s.close", self.__class__.__name__)
+        if __debug__: log.debug("%s.close", self.__class__.__name__)
         super().close()
         self.interface_id = None
     def is_connected(self) -> bool:

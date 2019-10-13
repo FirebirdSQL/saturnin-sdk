@@ -38,20 +38,20 @@ See https://firebird-butler.readthedocs.io/en/latest/rfc/4/FBSP.html
 """
 
 import logging
-from typing import List, Dict, Sequence, Optional, Union
-from uuid import UUID, uuid5, NAMESPACE_OID
+import typing as t
+import uuid
 from struct import pack, unpack
-from enum import IntEnum, IntFlag
 from time import monotonic
 import zmq
-from firebird.butler import fbsp_pb2 as pb, fbsd_pb2 as fbsd
-from .types import TChannel, TServiceImpl, TSession, TMessage, TProtocol, Token, State, \
-     ServiceError, ClientError, InvalidMessageError, Origin
-from .base import BaseMessage, BaseProtocol, BaseSession, BaseMessageHandler, \
-     get_unique_key, peer_role, msg_bytes
+from firebird.butler import fbsp_pb2 as fbsp_proto, fbsd_pb2 as fbsd_proto
+from saturnin.sdk.types import Enum, Flag, Token, RoutingID, Origin, State, \
+     ServiceError, ClientError, InvalidMessageError
+from saturnin.sdk import base
+from saturnin.sdk.base import get_unique_key, peer_role, msg_bytes
 
-PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.0' # firebird.butler.protocol.fbsp
-PROTOCOL_UID = uuid5(NAMESPACE_OID, PROTOCOL_OID)
+# OID: iso.org.dod.internet.private.enterprise.firebird.butler.protocol.fbsp
+PROTOCOL_OID = '1.3.6.1.4.1.53446.1.5.1'
+PROTOCOL_UID = uuid.uuid5(uuid.NAMESPACE_OID, PROTOCOL_OID)
 PROTOCOL_REVISION = 1
 
 # Message header
@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 
 # Enums
 
-class MsgType(IntEnum):
+class MsgType(Enum):
     "FBSP Message Type"
     UNKNOWN = 0 # Not a valid option, defined only to handle undefined values
     HELLO = 1   # initial message from client
@@ -81,14 +81,14 @@ class MsgType(IntEnum):
     CLOSE = 9   # sent by peer that is going to close the connection
     ERROR = 31  # error reported by service
 
-class MsgFlag(IntFlag):
+class MsgFlag(Flag):
     "FBSP message flag"
     NONE = 0
     ACK_REQ = 1
     ACK_REPLY = 2
     MORE = 4
 
-class ErrorCode(IntEnum):
+class ErrorCode(Enum):
     "FBSP Error Code"
     # Errors indicating that particular request cannot be satisfied
     INVALID_MESSAGE = 1
@@ -118,18 +118,18 @@ def __invalid_if(expr: bool, protobuf: str, field: str) -> None:
     if expr:
         raise InvalidMessageError("Missing required field '%s.%s'" % (protobuf, field))
 
-def validate_vendor_id_pb(pbo: fbsd.VendorId) -> None:
+def validate_vendor_id_pb(pbo: fbsd_proto.VendorId) -> None:
     "Validate fbsp.VendorId protobuf. Raises InvalidMessage for missing required fields."
     name = "VendorId"
     __invalid_if(pbo.uid == 0, name, "uid")
 
-def validate_platform_id_pb(pbo: fbsd.PlatformId) -> None:
+def validate_platform_id_pb(pbo: fbsd_proto.PlatformId) -> None:
     "Validate fbsp.PlatformId protobuf. Raises InvalidMessage for missing required fields."
     name = "PlatformId"
     __invalid_if(pbo.uid == 0, name, "uid")
     __invalid_if(pbo.version == 0, name, "version")
 
-def validate_agent_id_pb(pbo: fbsd.AgentIdentification) -> None:
+def validate_agent_id_pb(pbo: fbsd_proto.AgentIdentification) -> None:
     "Validate fbsp.AgentIdentification protobuf. Raises InvalidMessage for missing required fields."
     name = "AgentIdentification"
     __invalid_if(pbo.uid == 0, name, "uid")
@@ -140,37 +140,37 @@ def validate_agent_id_pb(pbo: fbsd.AgentIdentification) -> None:
     validate_vendor_id_pb(pbo.vendor)
     validate_platform_id_pb(pbo.platform)
 
-def validate_peer_id_pb(pbo: fbsd.PeerIdentification) -> None:
+def validate_peer_id_pb(pbo: fbsd_proto.PeerIdentification) -> None:
     "Validate fbsp.PeerIdentification protobuf. Raises InvalidMessage for missing required fields."
     name = "PeerIdentification"
     __invalid_if(len(pbo.uid) == 0, name, "uid")
     __invalid_if(pbo.pid == 0, name, "pid")
     __invalid_if(len(pbo.host) == 0, name, "host")
 
-def validate_error_desc_pb(pbo: fbsd.ErrorDescription) -> None:
+def validate_error_desc_pb(pbo: fbsd_proto.ErrorDescription) -> None:
     "Validate fbsp.ErrorDescription protobuf. Raises InvalidMessage for missing required fields."
     name = "ErrorDescription"
     __invalid_if(pbo.code == 0, name, "code")
     __invalid_if(len(pbo.description) == 0, name, "description")
 
-def validate_interface_spec_pb(pbo: fbsd.InterfaceSpec) -> None:
+def validate_interface_spec_pb(pbo: fbsd_proto.InterfaceSpec) -> None:
     "Validate fbsp.InterfaceSpec protobuf. Raises InvalidMessage for missing required fields."
     name = "InterfaceSpec"
     __invalid_if(pbo.number == 0, name, "number")
     __invalid_if(len(pbo.uid) == 0, name, "uid")
 
-def validate_cancel_pb(pbo: pb.FBSPCancelRequests) -> None:
+def validate_cancel_pb(pbo: fbsp_proto.FBSPCancelRequests) -> None:
     "Validate fbsp.CancelRequests protobuf. Raises InvalidMessage for missing required fields."
     name = "CancelRequests"
     __invalid_if(len(pbo.token) == 0, name, "token")
 
-def validate_hello_pb(pbo: pb.FBSPHelloDataframe) -> None:
+def validate_hello_pb(pbo: fbsp_proto.FBSPHelloDataframe) -> None:
     "Validate fbsp.HelloDataframe protobuf. Raises InvalidMessage for missing required fields."
     #name = "HelloDataframe"
     validate_peer_id_pb(pbo.instance)
     validate_agent_id_pb(pbo.client)
 
-def validate_welcome_pb(pbo: pb.FBSPWelcomeDataframe) -> None:
+def validate_welcome_pb(pbo: fbsp_proto.FBSPWelcomeDataframe) -> None:
     "Validate fbsp.WelcomeDataframe protobuf. Raises InvalidMessage for missing required fields."
     name = "WelcomeDataframe"
     validate_peer_id_pb(pbo.instance)
@@ -185,22 +185,22 @@ def bb2h(value_hi: int, value_lo: int) -> int:
     "Compose two bytes into word value."
     return unpack('!H', pack('!BB', value_hi, value_lo))[0]
 
-def uid2uuid(lines: Sequence) -> List:
+def uid2uuid(lines: t.Sequence) -> t.List:
     """Replace ugly escaped "uid" strings with standard UUID string format.
 """
     result = []
     for line in lines:
         text = line.strip()
-        if text.startswith('uid:') or '_uid:' in text:
+        if text.startswith('uid:') or '_uid:' in text or '_uids' in text:
             i = line[line.index('"')+1:line.rindex('"')]
-            uuid = UUID(bytes=eval(f'b"{i}"'))
-            line = line.replace(i, str(uuid))
+            uid = uuid.UUID(bytes=eval(f'b"{i}"'))
+            line = line.replace(i, str(uid))
         result.append(line)
     return result
 
 # Base Message Classes
 
-class Message(BaseMessage):
+class Message(base.Message):
     """Base FBSP Message.
 
 Attributes:
@@ -224,7 +224,7 @@ Attributes:
     def _get_printout_ex(self) -> str:
         "Called for printout of attributes defined by descendant classes."
         return ""
-    def from_zmsg(self, frames: Sequence) -> None:
+    def from_zmsg(self, frames: t.Sequence) -> None:
         """Populate message attributes from sequence of ZMQ data frames. The `data`
 attribute does not contain the FBSP control frame. Also, the descendant classes may
 unpack some data frames into additional attributes they define.
@@ -236,7 +236,7 @@ Arguments:
         self.flags = MsgFlag(flags)
         self.data = frames[1:]  # First frame is a control frame
         self._unpack_data()
-    def as_zmsg(self) -> Sequence:
+    def as_zmsg(self) -> t.List:
         """Returns message as sequence of ZMQ data frames."""
         zmsg = []
         zmsg.append(self.get_header())
@@ -268,7 +268,7 @@ Arguments:
         self.token = bytearray(8)
         self.type_data = 0
         self.flags = MsgFlag(0)
-    def copy(self) -> TMessage:
+    def copy(self) -> 'Message':
         "Returns copy of the message."
         msg = super().copy()
         msg.message_type = self.message_type
@@ -282,7 +282,7 @@ Arguments:
                                                             MsgType.REPLY, MsgType.DATA,
                                                             MsgType.STATE, MsgType.CANCEL)
     @classmethod
-    def validate_cframe(cls, zmsg: Sequence) -> None:
+    def validate_cframe(cls, zmsg: t.Sequence) -> None:
         """Verifies that first frame in sequence has valid structure of FBSP control
 frame."""
         if not zmsg:
@@ -301,7 +301,7 @@ frame."""
         if (flags | 7) > 7:
             raise InvalidMessageError("Invalid flags")
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         """Verifies that sequence of ZMQ zmsg frames is a valid FBSP base message.
 
 It validates only FBSP Control Frame. FBSP Data Frames are validated in child classes.
@@ -315,7 +315,7 @@ Raises:
 """
         cls.validate_cframe(zmsg)
         (control_byte, type_data) = unpack('!4xBxH8x', msg_bytes(zmsg[0]))
-        message_type = control_byte >> 3
+        message_type = MsgType(control_byte >> 3)
         if (message_type in (MsgType.REQUEST, MsgType.STATE)) and (type_data == 0):
             raise InvalidMessageError("Zero Request Code not allowed")
         if (message_type == MsgType.ERROR) and (type_data >> 5 == 0):
@@ -329,10 +329,11 @@ Raises:
     def get_printout(self, with_data=True) -> str:
         """Returns printable, multiline representation of message.
 """
-        lines = [f"Message type: {self.message_type.name}",
-                 f"Flags: {self.flags.name}",
-                 f"Type data: {self.type_data}",
-                 f"Token: {unpack('Q',self.token)[0]}"
+        flags = ', '.join(self.flags.get_flag_names())
+        lines = ["Message type: %s" % self.message_type.name,
+                 "Flags: %s" % (flags if flags else 'NONE'),
+                 "Type data: %s" % self.type_data,
+                 "Token: %s" % unpack('Q', self.token)[0]
                 ]
         extra = self._get_printout_ex()
         if extra:
@@ -370,9 +371,9 @@ class HandshakeMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.peer.Clear()
-    def copy(self) -> TMessage:
+    def copy(self) -> 'HandshakeMessage':
         "Returns copy of the message."
-        msg = super().copy()
+        msg: HandshakeMessage = super().copy()
         msg.peer.CopyFrom(self.peer)
         return msg
 
@@ -383,16 +384,16 @@ class HelloMessage(HandshakeMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.HELLO
-        self.peer = pb.FBSPHelloDataframe()
+        self.peer: fbsp_proto.FBSPHelloDataframe = fbsp_proto.FBSPHelloDataframe()
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
         try:
-            frame = pb.FBSPHelloDataframe()
+            frame = fbsp_proto.FBSPHelloDataframe()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_hello_pb(frame)
         except Exception as exc:
-            raise InvalidMessageError("Invalid data frame for HELLO or WELCOME") from exc
+            raise InvalidMessageError("Invalid data frame for HELLO message") from exc
 
 class WelcomeMessage(HandshakeMessage):
     """The WELCOME message is the response of the Service to the HELLO message sent by the Client,
@@ -401,16 +402,16 @@ class WelcomeMessage(HandshakeMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.WELCOME
-        self.peer = pb.FBSPWelcomeDataframe()
+        self.peer: fbsp_proto.FBSPWelcomeDataframe = fbsp_proto.FBSPWelcomeDataframe()
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
         try:
-            frame = pb.FBSPWelcomeDataframe()
+            frame = fbsp_proto.FBSPWelcomeDataframe()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_welcome_pb(frame)
         except Exception as exc:
-            raise InvalidMessageError("Invalid data frame for HELLO or WELCOME") from exc
+            raise InvalidMessageError("Invalid data frame for WELCOME message") from exc
 
 class NoopMessage(Message):
     """The NOOP message means no operation.
@@ -419,7 +420,7 @@ class NoopMessage(Message):
         super().__init__()
         self.message_type = MsgType.NOOP
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
         if len(zmsg) > 1:
             raise InvalidMessageError("Data frames not allowed for NOOP")
@@ -474,7 +475,7 @@ class CancelMessage(Message):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.CANCEL
-        self.cancel_reqest = pb.FBSPCancelRequests()
+        self.cancel_reqest: fbsp_proto.FBSPCancelRequests = fbsp_proto.FBSPCancelRequests()
     def _unpack_data(self) -> None:
         self.cancel_reqest.ParseFromString(msg_bytes(self.data.pop(0)))
     def _pack_data(self, frames: list) -> None:
@@ -485,18 +486,18 @@ class CancelMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.cancel_reqest.Clear()
-    def copy(self) -> TMessage:
+    def copy(self) -> 'CancelMessage':
         "Returns copy of the message."
-        msg = super().copy()
+        msg: CancelMessage = super().copy()
         msg.cancel_reqest.ParseFromString(self.cancel_reqest.SerializeToString())
         return msg
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
         if len(zmsg) > 2:
             raise InvalidMessageError("CANCEL must have exactly one data frame")
         try:
-            frame = pb.FBSPCancelRequests()
+            frame = fbsp_proto.FBSPCancelRequests()
             frame.ParseFromString(msg_bytes(zmsg[1]))
             validate_cancel_pb(frame)
         except Exception as exc:
@@ -507,7 +508,7 @@ class StateMessage(APIMessage):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.STATE
-        self._state = pb.FBSPStateInformation()
+        self._state: fbsp_proto.FBSPStateInformation = fbsp_proto.FBSPStateInformation()
     def __get_state(self) -> State:
         return State(self._state.state)
     def __set_state(self, value: State) -> None:
@@ -526,18 +527,18 @@ class StateMessage(APIMessage):
     def clear(self) -> None:
         super().clear()
         self._state.Clear()
-    def copy(self) -> TMessage:
+    def copy(self) -> 'StateMessage':
         "Returns copy of the message."
-        msg = super().copy()
+        msg: StateMessage = super().copy()
         msg._state.CopyFrom(self._state)
         return msg
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
         if len(zmsg) > 2:
             raise InvalidMessageError("STATE must have exactly one data frame")
         try:
-            frame = pb.FBSPStateInformation()
+            frame = fbsp_proto.FBSPStateInformation()
             frame.ParseFromString(msg_bytes(zmsg[1]))
         except Exception as exc:
             raise InvalidMessageError("Invalid data frame for STATE") from exc
@@ -555,7 +556,7 @@ class ErrorMessage(Message):
     def __init__(self):
         super().__init__()
         self.message_type = MsgType.ERROR
-        self.errors = []
+        self.errors: t.List[fbsd_proto.ErrorDescription] = []
     def __get_error_code(self) -> int:
         return ErrorCode(self.type_data >> 5)
     def __set_error_code(self, value: ErrorCode) -> None:
@@ -567,7 +568,7 @@ class ErrorMessage(Message):
         self.type_data |= value
     def _unpack_data(self) -> None:
         while self.data:
-            err = fbsd.ErrorDescription()
+            err = fbsd_proto.ErrorDescription()
             err.ParseFromString(msg_bytes(self.data.pop(0)))
             self.errors.append(err)
     def _pack_data(self, frames: list) -> None:
@@ -586,18 +587,18 @@ class ErrorMessage(Message):
     def clear(self) -> None:
         super().clear()
         self.errors.clear()
-    def copy(self) -> TMessage:
+    def copy(self) -> 'ErrorMessage':
         "Returns copy of the message."
-        msg = super().copy()
+        msg: ErrorMessage = super().copy()
         for error in self.errors:
-            err = fbsd.ErrorDescription()
+            err = fbsd_proto.ErrorDescription()
             err.CopyFrom(error)
             msg.errors.append(err)
         return msg
     @classmethod
-    def validate_zmsg(cls, zmsg: Sequence) -> None:
+    def validate_zmsg(cls, zmsg: t.Sequence) -> None:
         super().validate_zmsg(zmsg)
-        frame = fbsd.ErrorDescription()
+        frame = fbsd_proto.ErrorDescription()
         for i, segment in enumerate(zmsg[1:]):
             try:
                 frame.ParseFromString(msg_bytes(segment))
@@ -605,9 +606,9 @@ class ErrorMessage(Message):
                 frame.Clear()
             except Exception as exc:
                 raise InvalidMessageError("Invalid data frame %d for ERROR" % i) from exc
-    def add_error(self) -> fbsd.ErrorDescription:
+    def add_error(self) -> fbsd_proto.ErrorDescription:
         "Return newly created ErrorDescription associated with message."
-        frame = fbsd.ErrorDescription()
+        frame = fbsd_proto.ErrorDescription()
         self.errors.append(frame)
         return frame
 
@@ -618,7 +619,7 @@ class ErrorMessage(Message):
 
 # Session, Protocol and Message Handlers
 
-class Session(BaseSession):
+class Session(base.Session):
     """FBSP session. Contains information about peer.
 
 Attributes:
@@ -635,11 +636,12 @@ Attributes:
     :classification: Agent classification
     :requests: List of stored RequestMessages
 """
-    def __init__(self, routing_id: bytes):
+    def __init__(self, routing_id: RoutingID):
         super().__init__(routing_id)
-        self.greeting = None
-        self._handles: Dict[int, RequestMessage] = {}
-        self._requests: Dict[bytes, RequestMessage] = {}
+        self.greeting: t.Union[fbsp_proto.FBSPHelloDataframe,
+                               fbsp_proto.FBSPWelcomeDataframe] = None
+        self._handles: t.Dict[int, RequestMessage] = {}
+        self._requests: t.Dict[bytes, RequestMessage] = {}
     def get_handle(self, msg: RequestMessage) -> int:
         """Create new `handle` for request message.
 
@@ -679,7 +681,7 @@ Returns:
 It uses message `token` as key to request data store.
 """
         self._requests[msg.token] = msg
-    def request_done(self, request: Union[bytes, RequestMessage]):
+    def request_done(self, request: t.Union[bytes, RequestMessage]) -> None:
         """Removes REQUEST message from session.
 
 Arguments:
@@ -693,19 +695,19 @@ Arguments:
             delattr(msg, 'handle')
         del self._requests[key]
 
-    requests: List = property(lambda self: self._requests.values())
-    peer_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.instance.uid))
+    requests: t.List = property(lambda self: self._requests.values())
+    peer_id: bytes = property(lambda self: uuid.UUID(bytes=self.greeting.peer.instance.uid))
     host: str = property(lambda self: self.greeting.peer.instance.host)
     pid: int = property(lambda self: self.greeting.peer.instance.pid)
-    agent_id: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.uid))
+    agent_id: bytes = property(lambda self: uuid.UUID(bytes=self.greeting.peer.service.uid))
     name: str = property(lambda self: self.greeting.peer.service.name)
     version: str = property(lambda self: self.greeting.peer.service.version)
-    vendor: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.vendor.uid))
-    platform: bytes = property(lambda self: UUID(bytes=self.greeting.peer.service.platform.uid))
+    vendor: bytes = property(lambda self: uuid.UUID(bytes=self.greeting.peer.service.vendor.uid))
+    platform: bytes = property(lambda self: uuid.UUID(bytes=self.greeting.peer.service.platform.uid))
     platform_version: str = property(lambda self: self.greeting.peer.service.platform.version)
     classification: str = property(lambda self: self.greeting.peer.service.classification)
 
-class Protocol(BaseProtocol):
+class Protocol(base.Protocol):
     """4/FBSP - Firebird Butler Service Protocol
 
 The main purpose of protocol class is to validate ZMQ messages and create FBSP messages.
@@ -716,34 +718,36 @@ Class attributes:
    :REVISION:   Protocol revision
 """
     OID: str = PROTOCOL_OID
-    UID: UUID = PROTOCOL_UID
+    UID: uuid.UUID = PROTOCOL_UID
     REVISION: int = PROTOCOL_REVISION
-    ORIGIN_MESSAGES = {Origin.SERVICE: (MsgType.ERROR, MsgType.WELCOME, MsgType.NOOP,
-                                        MsgType.REPLY, MsgType.DATA, MsgType.STATE,
-                                        MsgType.CLOSE),
-                       Origin.CLIENT: (MsgType.HELLO, MsgType.NOOP, MsgType.REQUEST,
-                                       MsgType.CANCEL, MsgType.DATA, MsgType.CLOSE)
-                      }
-    VALID_ACK = (MsgType.NOOP, MsgType.REQUEST, MsgType.REPLY, MsgType.DATA,
-                 MsgType.STATE, MsgType.CANCEL)
-    MESSAGE_MAP = {MsgType.HELLO: HelloMessage,
-                   MsgType.WELCOME: WelcomeMessage,
-                   MsgType.NOOP: NoopMessage,
-                   MsgType.REQUEST: RequestMessage,
-                   MsgType.REPLY: ReplyMessage,
-                   MsgType.DATA: DataMessage,
-                   MsgType.CANCEL: CancelMessage,
-                   MsgType.STATE: StateMessage,
-                   MsgType.CLOSE: CloseMessage,
-                   MsgType.ERROR: ErrorMessage,
-                  }
+    ORIGIN_MESSAGES: t.Dict[Origin, t.Tuple[MsgType]] = \
+        {Origin.SERVICE: (MsgType.ERROR, MsgType.WELCOME, MsgType.NOOP,
+                          MsgType.REPLY, MsgType.DATA, MsgType.STATE,
+                          MsgType.CLOSE),
+         Origin.CLIENT: (MsgType.HELLO, MsgType.NOOP, MsgType.REQUEST,
+                         MsgType.CANCEL, MsgType.DATA, MsgType.CLOSE)
+         }
+    VALID_ACK: t.List[MsgType] = (MsgType.NOOP, MsgType.REQUEST, MsgType.REPLY, \
+                                  MsgType.DATA, MsgType.STATE, MsgType.CANCEL)
+    MESSAGE_MAP: t.Dict[MsgType, Message] \
+        = {MsgType.HELLO: HelloMessage,
+           MsgType.WELCOME: WelcomeMessage,
+           MsgType.NOOP: NoopMessage,
+           MsgType.REQUEST: RequestMessage,
+           MsgType.REPLY: ReplyMessage,
+           MsgType.DATA: DataMessage,
+           MsgType.CANCEL: CancelMessage,
+           MsgType.STATE: StateMessage,
+           MsgType.CLOSE: CloseMessage,
+           MsgType.ERROR: ErrorMessage,
+           }
     @classmethod
-    def instance(cls) -> TProtocol:
+    def instance(cls) -> 'Protocol':
         """Returns global FBSP protocol instance."""
         return _FBSP_INSTANCE
-    def create_message_for(self, message_type: int, token: Optional[Token] = None,
-                           type_data: Optional[int] = None,
-                           flags: Optional[MsgFlag] = None) -> TMessage:
+    def create_message_for(self, message_type: MsgType, token: Token = None,
+                           type_data: int = None,
+                           flags: MsgFlag = None) -> Message:
         """Create new :class:`Message` child class instance for particular FBSP message type.
 
 Uses :attr:`message_map` dictionary to find appropriate Message descendant for the messsage.
@@ -772,7 +776,7 @@ Raises:
         if flags is not None:
             msg.flags = flags
         return msg
-    def create_ack_reply(self, msg: TMessage) -> TMessage:
+    def create_ack_reply(self, msg: Message) -> Message:
         """Returns new Message that is an ACK-REPLY response message.
 """
         reply = self.create_message_for(msg.message_type, msg.token, msg.type_data,
@@ -790,7 +794,7 @@ Returns:
     New :class:`WelcomeMessage` instance.
 """
         return self.create_message_for(MsgType.WELCOME, msg.token)
-    def create_error_for(self, msg: TMessage, error_code: IntEnum) -> ErrorMessage:
+    def create_error_for(self, msg: Message, error_code: Enum) -> ErrorMessage:
         """Create new ErrorMessage that relates to specific message.
 
 Arguments:
@@ -838,9 +842,9 @@ Returns:
     New :class:`DataMessage` instance.
 """
         return self.create_message_for(MsgType.DATA, msg.token)
-    def create_request_for(self, interface_id, api_code: int,
-                           token: Optional[Token] = None) -> RequestMessage:
-        """Create new RequestMessage that is best suited for specific request.
+    def create_request_for(self, interface_id: int, api_code: Enum,
+                           token: Token = None) -> RequestMessage:
+        """Create new RequestMessage for specific API call.
 
 Arguments:
     :interface_id: Interface Identification Number
@@ -854,7 +858,7 @@ Returns:
     def has_greeting(self) -> bool:
         "Returns True if protocol uses greeting messages."
         return True
-    def parse(self, zmsg: Sequence) -> TMessage:
+    def parse(self, zmsg: t.Sequence) -> Message:
         """Parse ZMQ message into protocol message.
 
 Arguments:
@@ -874,7 +878,7 @@ Returns:
         msg = self.create_message_for(control_byte >> 3, token, type_data, flags)
         msg.from_zmsg(zmsg)
         return msg
-    def validate(self, zmsg: Sequence, origin: Origin, **kwargs) -> None:
+    def validate(self, zmsg: t.Sequence, origin: Origin, **kwargs) -> None:
         """Validate that ZMQ message is a valid FBSP message.
 
 Arguments:
@@ -890,7 +894,13 @@ Raises:
 """
         Message.validate_cframe(zmsg)
         (control_byte, flags) = unpack('!4xBB10x', msg_bytes(zmsg[0]))
-        message_type = MsgType(control_byte >> 3)
+        msg_type = control_byte >> 3
+        try:
+            if msg_type == 0:
+                raise ValueError()
+            message_type = MsgType(msg_type)
+        except ValueError:
+            raise InvalidMessageError("Illegal message type %s" % msg_type)
         flags = MsgFlag(flags)
         if kwargs.get('greeting', False):
             if not (((message_type == MsgType.HELLO) and (origin == Origin.CLIENT)) or
@@ -914,17 +924,24 @@ def exception_for(msg: ErrorMessage) -> ServiceError:
     for err in msg.errors:
         desc.append(f"#{err.code} : {err.description}")
     exc = ServiceError('\n'.join(desc))
-    log.debug("exception_for()->%s", exc)
+    if __debug__: log.debug("exception_for()->%s", exc)
     return exc
 
-def note_exception(err_msg: ErrorMessage, exc: Exception):
+def note_exception(err_msg: ErrorMessage, exc: Exception) -> None:
     """Store information from exception into ErrorMessage."""
-    errdesc = err_msg.add_error()
-    if hasattr(exc, 'code'):
-        errdesc.code = exc.code
-    errdesc.description = str(exc)
+    to_note = exc
+    while to_note:
+        errdesc = err_msg.add_error()
+        if hasattr(exc, 'code'):
+            errdesc.code = getattr(exc, 'code')
+        errdesc.description = str(exc)
+        to_note = exc.__cause__
 
-class BaseFBSPHandler(BaseMessageHandler):
+# Types
+
+TFBSPMessageHandler = t.Callable[[Session, Message], None]
+
+class BaseFBSPHandler(base.MessageHandler):
     """Base class for FBSP message handlers.
 
 Uses `handlers` dictionary to route received messages to appropriate handlers.
@@ -938,50 +955,52 @@ Messages handled:
     :CLOSE:   Raises NotImplementedError
 
 Abstract methods:
-    :on_unknown: Default message handler.
-    :on_data:    Handle DATA message.
-    :on_close:   Handle CLOSE message.
+    :handle_unknown: Default message handler.
+    :handle_data:    Handle DATA message.
+    :handle_close:   Handle CLOSE message.
 """
-    def __init__(self, role: Origin, resume_timeout: int = 10):
-        super().__init__(role, Session, resume_timeout)
-        self.handlers = {MsgType.NOOP: self.on_noop,
-                         MsgType.DATA: self.on_data,
-                         MsgType.CLOSE: self.on_close,
-                        }
-        self.protocol = Protocol.instance()
-    def raise_protocol_violation(self, session: TSession, msg: Message) -> None:
-        """Raises ServiceError."""
-        raise ServiceError("Protocol violation from service, message type: %d" %
-                           msg.message_type.name)
-    def send_protocol_violation(self, session: TSession, msg: Message) -> None:
+    def __init__(self, role: Origin):
+        super().__init__(role, Session)
+        self.handlers: t.Dict[MsgType, TFBSPMessageHandler] = \
+            {MsgType.NOOP: self.handle_noop,
+             MsgType.DATA: self.handle_data,
+             MsgType.CLOSE: self.handle_close,
+             }
+        self.protocol: Protocol = Protocol.instance()
+    def send_protocol_violation(self, session: Session, msg: Message) -> None:
         "Sends ERROR/PROTOCOL_VIOLATION message."
         errmsg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
         err = errmsg.add_error()
         err.description = "Received message is a valid FBSP message, but does not " \
             "conform to the protocol."
         self.send(errmsg, session)
-    def do_nothing(self, session: TSession, msg: Message) -> None:
+    def do_nothing(self, session: Session, msg: Message) -> None:
         """Message handler that does nothing. Useful for cases when message must be handled
 but no action is required, like handling CANCEL messages in simple protocols.
 """
-        log.debug("%s.do_nothing", self.__class__.__name__)
-    def on_unknown(self, session: TSession, msg: Message) -> None:
+        if __debug__: log.debug("%s.do_nothing", self.__class__.__name__)
+    def handle_exception(self, session: Session, msg: Message, exc: Exception) -> None:
+        """Exception handler called by `dispatch()` on exception in handler. The default
+implementation only logs exception.
+"""
+        log.exception("Internal error in message handler")
+    def handle_unknown(self, session: Session, msg: Message) -> None:
         """Default message handler. Called by `dispatch` when no appropriate message handler
 is found in :attr:`handlers` dictionary.
 """
         raise NotImplementedError
-    def on_noop(self, session: TSession, msg: NoopMessage) -> None:
+    def handle_noop(self, session: Session, msg: NoopMessage) -> None:
         "Handle NOOP message. Sends ACK_REPLY back if required, otherwise it will do nothing."
-        log.debug("%s.on_noop", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_noop", self.__class__.__name__)
         if msg.has_ack_req():
             self.send(self.protocol.create_ack_reply(msg), session)
-    def on_data(self, session: TSession, msg: DataMessage) -> None:
+    def handle_data(self, session: Session, msg: DataMessage) -> None:
         "Handle DATA message."
         raise NotImplementedError
-    def on_close(self, session: TSession, msg: CloseMessage) -> None:
+    def handle_close(self, session: Session, msg: CloseMessage) -> None:
         "Handle CLOSE message."
         raise NotImplementedError
-    def dispatch(self, session: TSession, msg: TMessage) -> None:
+    def dispatch(self, session: Session, msg: Message) -> None:
         """Process message received from peer.
 
 Uses :attr:`handlers` dictionary to find appropriate handler for the messsage.
@@ -992,14 +1011,17 @@ Arguments:
     :session: Session attached to peer.
     :msg:     FBSP message received from client.
 """
-        log.debug("%s.dispatch", self.__class__.__name__)
-        handler = self.handlers.get((msg.message_type, msg.type_data))
+        if __debug__: log.debug("%s.dispatch", self.__class__.__name__)
+        handler: TFBSPMessageHandler = self.handlers.get((msg.message_type, msg.type_data))
         if not handler:
             handler = self.handlers.get(msg.message_type)
         if handler:
-            handler(session, msg)
+            try:
+                handler(session, msg)
+            except Exception as exc:
+                self.handle_exception(session, msg, exc)
         else:
-            self.on_unknown(session, msg)
+            self.handle_unknown(session, msg)
 
 class ServiceMessagelHandler(BaseFBSPHandler):
     """Base class for Service handlers that process messages from Client.
@@ -1024,129 +1046,144 @@ Messages handled:
 Abstract methods:
     :handle_cancel:  Handle CANCEL message.
 """
-    def __init__(self, service_impl: TServiceImpl, resume_timeout: int = 10):
-        super().__init__(Origin.SERVICE, resume_timeout)
-        self.impl: TServiceImpl = service_impl
-        self.handlers.update({MsgType.HELLO: self.on_hello,
-                              MsgType.REQUEST: self.on_request,
-                              MsgType.CANCEL: self.on_cancel,
-                              MsgType.REPLY: self.on_reply,
+    def __init__(self):
+        super().__init__(Origin.SERVICE)
+        self.handlers.update({MsgType.HELLO: self.handle_hello,
+                              MsgType.REQUEST: self.handle_request,
+                              MsgType.CANCEL: self.handle_cancel,
+                              MsgType.REPLY: self.handle_reply,
                               MsgType.WELCOME: self.send_protocol_violation,
                               MsgType.STATE: self.send_protocol_violation,
                               MsgType.ERROR: self.send_protocol_violation,
                              })
-    def create_error_message(self, msg: TMessage, text: str,
-                             err_code: ErrorCode = ErrorCode.ERROR,
-                             app_code: int = 0) -> ErrorMessage:
-        """Return newly created error message with .
-
-Arguments:
-    :msg: The original message to which the error message is an answer.
-    :text: Error message text.
-    :err_code: FBSP error code.
-    :app_code: Application error code.
-"""
-        errmsg = self.protocol.create_error_for(msg, err_code)
-        err = errmsg.add_error()
-        err.code = app_code
-        err.description = text
-        return errmsg
     def close(self):
         "Close all connections to Clients."
-        log.debug("%s.close", self.__class__.__name__)
+        if __debug__: log.debug("%s.close", self.__class__.__name__)
+        session: Session
         while self.sessions:
             _, session = self.sessions.popitem()
             try:
                 if not session.messages:
-                    self.send(self.protocol.create_message_for(MsgType.CLOSE, session.token),
+                    self.send(self.protocol.create_message_for(MsgType.CLOSE,
+                                                               session.greeting.token),
                               session, False) # do not defer this message
             except:
                 # channel could be already closed from other side, as we are closing it too
                 # we can ignore any send errors
                 pass
-    def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
+    def send_error(self, session: Session, related_msg: t.Union[HelloMessage, RequestMessage],
+                   error_code: ErrorCode, description: str, app_code: int = None,
+                   exc: Exception = None) -> None:
+        """Sends ERROR message to peer.
+
+Arguments:
+    :session:     Session that identifies the receiver.
+    :related_msg: HELLO or REQUEST message this error relates to.
+    :error_code:  Error code.
+    :description: Error description.
+    :app_code:    Optional application-specific error code.
+    :exc:         Exception that should be noted in error message
+"""
+        err: ErrorMessage = self.protocol.create_error_for(related_msg, error_code)
+        errd = err.add_error()
+        if app_code:
+            errd.code = app_code
+        errd.description = description
+        if exc:
+            note_exception(err, exc)
+        self.send(err, session)
+    def handle_exception(self, session: Session, msg: Message, exc: Exception) -> None:
+        """Exception handler called by `dispatch()` on exceptions in handler. The default
+implementation only logs exception.
+"""
+        related_msg = msg if isinstance(msg, RequestMessage) else session.greeting
+        self.send_error(session, related_msg, ErrorCode.INTERNAL_SERVICE_ERROR,
+                        "Internal error in message handler", exc=exc)
+        log.exception("Internal error in message handler")
+    def handle_invalid_message(self, session: Session, exc: InvalidMessageError) -> None:
         """Called by `receive()` when message parsing raises InvalidMessageError.
 
 Sends ERROR/INVALID_MESSAGE back to the sender.
 """
-        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+        log.error("%s.handle_invalid_message(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
-        err_msg = self.protocol.create_error_for(session.greeting, ErrorCode.INVALID_MESSAGE)
+        err_msg: ErrorMessage = self.protocol.create_error_for(session.greeting,
+                                                               ErrorCode.INVALID_MESSAGE)
         note_exception(err_msg, exc)
         self.send(err_msg, session)
-    def on_invalid_greeting(self, routing_id: bytes, exc: InvalidMessageError) -> None:
+    def handle_invalid_greeting(self, routing_id: RoutingID, exc: InvalidMessageError) -> None:
         """Called by `receive()` when greeting message parsing raises InvalidMessageError.
 
 Closes connection to the sender.
 """
-        log.error("%s.on_invalid_greeting(%s)", self.__class__.__name__, exc)
-    def on_dispatch_error(self, session: TSession, msg: TMessage, exc: Exception) -> None:
+        log.error("%s.handle_invalid_greeting(%s)", self.__class__.__name__, exc)
+    def handle_dispatch_error(self, session: Session, msg: Message, exc: Exception) -> None:
         """Called by `receive()` on Exception unhandled by `dispatch()`.
 
 Sends ERROR/INTERNAL_SERVICE_ERROR back to the sender.
 """
-        log.error("%s.on_dispatch_error(%s/%s)", self.__class__.__name__,
+        log.error("%s.handle_dispatch_error(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
-        err_msg = self.protocol.create_error_for(msg, ErrorCode.INTERNAL_SERVICE_ERROR)
+        err_msg: ErrorMessage = self.protocol.create_error_for(msg, ErrorCode.INTERNAL_SERVICE_ERROR)
         note_exception(err_msg, exc)
         self.send(err_msg, session)
-    def on_ack_reply(self, session: TSession, msg: TMessage) -> None:
+    def handle_ack_reply(self, session: Session, msg: Message) -> None:
         """Called by `on_reply()` to handle REPLY/ACK_REPLY message.
 
 The default implementation does nothing.
 """
-        log.debug("%s.on_ack_reply", self.__class__.__name__)
-    def on_unknown(self, session: TSession, msg: Message) -> None:
+        if __debug__: log.debug("%s.handle_ack_reply", self.__class__.__name__)
+    def handle_unknown(self, session: Session, msg: Message) -> None:
         """Default message handler for unrecognized messages.
 Sends ERROR/PROTOCOL_VIOLATION back to the client.
 """
-        log.debug("%s.on_unknown", self.__class__.__name__)
-        errmsg = self.protocol.create_error_for(session.greeting, ErrorCode.PROTOCOL_VIOLATION)
+        if __debug__: log.debug("%s.handle_unknown", self.__class__.__name__)
+        errmsg: ErrorMessage = self.protocol.create_error_for(session.greeting, ErrorCode.PROTOCOL_VIOLATION)
         err = errmsg.add_error()
         err.description = "The service does not know how to process this message"
         self.send(errmsg, session)
-    def on_data(self, session: TSession, msg: DataMessage) -> None:
+    def handle_data(self, session: Session, msg: DataMessage) -> None:
         "Handle DATA message."
-        log.debug("%s.on_data", self.__class__.__name__)
-        err_msg = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
+        if __debug__: log.debug("%s.handle_data", self.__class__.__name__)
+        err_msg: ErrorMessage = self.protocol.create_error_for(msg, ErrorCode.PROTOCOL_VIOLATION)
         err = err_msg.add_error()
         err.description = "Data message not allowed"
         self.send(err_msg, session)
-    def on_close(self, session: TSession, msg: CloseMessage) -> None:
+    def handle_close(self, session: Session, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
 the session.
 """
-        log.debug("%s.on_close", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_close", self.__class__.__name__)
         self.discard_session(session)
-    def on_hello(self, session: TSession, msg: HelloMessage) -> None:
+    def handle_hello(self, session: Session, msg: HelloMessage) -> None:
         """Handle HELLO message.
 
 This method MUST be overridden in child classes to send WELCOME message back to the client.
 Overriding method must call `super().on_hello(session, msg)`.
 """
-        log.debug("%s.on_hello", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_hello", self.__class__.__name__)
         session.greeting = msg
-    def on_request(self, session: TSession, msg: RequestMessage) -> None:
+    def handle_request(self, session: Session, msg: RequestMessage) -> None:
         """Handle Client REQUEST message.
 
 This is implementation that provides a fall-back handler for unsupported request codes (not
 defined in `handler` table) that sends back an ERROR/BAD_REQUEST message.
 """
-        log.debug("%s.on_request", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_request", self.__class__.__name__)
         self.send(self.protocol.create_error_for(msg, ErrorCode.BAD_REQUEST), session)
-    def on_cancel(self, session: TSession, msg: CancelMessage) -> None:
+    def handle_cancel(self, session: Session, msg: CancelMessage) -> None:
         "Handle CANCEL message."
         raise NotImplementedError
-    def on_reply(self, session: TSession, msg: ReplyMessage):
+    def handle_reply(self, session: Session, msg: ReplyMessage):
         """Handle REPLY message.
 
 Unless it's an ACK_REPLY, client SHALL not send REPLY messages to the service.
 """
-        log.debug("%s.on_reply", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_reply", self.__class__.__name__)
         if msg.has_ack_reply():
-            self.on_ack_reply(session, msg)
+            self.handle_ack_reply(session, msg)
         else:
             self.send_protocol_violation(session, msg)
 
@@ -1162,48 +1199,52 @@ Attributes:
     :last_token_seen: Token from last message processed by `on_*` handlers or None.
 
 Messages handled:
-    :unknown: Raises ServiceError
-    :HELLO:   Raises ServiceError
-    :WELCOME: Store WELCOME to session.greeting or raise ServiceError on unexpected one.
+    :unknown: Raises ClientError
+    :HELLO:   Raises ClientError
+    :WELCOME: Store WELCOME to session.greeting or raise ClientError on unexpected one.
     :NOOP:    Sends ACK_REPLY back if required, otherwise it will do nothing.
-    :REQUEST: Raises ServiceError
+    :REQUEST: Raises ClientError
     :REPLY:   Raises NotImplementedError
     :DATA:    Raises NotImplementedError
-    :CANCEL:  Raises ServiceError
+    :CANCEL:  Raises ClientError
     :STATE:   Raises NotImplementedError
-    :CLOSE:   Disconnects the service, closes the session, and raises ServiceError.
+    :CLOSE:   Disconnects the service, closes the session, and raises ClientError.
     :ERROR:   Raises NotImplementedError
 
 Abstract methods:
-    :on_reply:   Handle Service REPLY message.
-    :on_data:    Handle DATA message.
-    :on_state:   Handle STATE message.
-    :on_error:   Handle ERROR message received from Service.
+    :handle_reply:   Handle Service REPLY message.
+    :handle_data:    Handle DATA message.
+    :handle_state:   Handle STATE message.
+    :handle_error:   Handle ERROR message received from Service.
 """
     def __init__(self):
         super().__init__(Origin.CLIENT)
-        self.handlers.update({MsgType.WELCOME: self.on_welcome,
-                              MsgType.REPLY: self.on_reply,
-                              MsgType.STATE: self.on_state,
-                              MsgType.ERROR: self.on_error,
+        self.handlers.update({MsgType.WELCOME: self.handle_welcome,
+                              MsgType.REPLY: self.handle_reply,
+                              MsgType.STATE: self.handle_state,
+                              MsgType.ERROR: self.handle_error,
                               MsgType.HELLO: self.raise_protocol_violation,
                               MsgType.REQUEST: self.raise_protocol_violation,
                               MsgType.CANCEL: self.raise_protocol_violation,
                              })
-        self._tcnt = 0 # Token generator
-        self.last_token_seen: bytes = None
+        self._tcnt: int = 0 # Token generator
+        self.last_token_seen: Token = None
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+    def raise_protocol_violation(self, session: Session, msg: Message) -> None:
+        """Raises ClientError."""
+        raise ClientError("Protocol violation from service, message type: %d" %
+                          msg.message_type.name)
     def new_token(self) -> Token:
         "Return newly created `token` value."
         self._tcnt += 1
         return pack('Q', self._tcnt)
-    def close(self):
+    def close(self) -> None:
         "Close connection to Service."
-        log.debug("%s.close", self.__class__.__name__)
-        session = self.get_session()
+        if __debug__: log.debug("%s.close", self.__class__.__name__)
+        session: Session = self.get_session()
         if session:
             try:
                 if not session.messages:
@@ -1215,20 +1256,20 @@ Abstract methods:
                 # we can ignore any send errors
                 pass
             self.discard_session(session)
-    def on_invalid_message(self, session: TSession, exc: InvalidMessageError) -> None:
+    def handle_invalid_message(self, session: Session, exc: InvalidMessageError) -> None:
         """Called by `get_response()` when message parsing raises InvalidMessageError.
 
 Raises `ClientError`.
 """
-        log.error("%s.on_invalid_message(%s/%s)", self.__class__.__name__,
+        log.error("%s.handle_invalid_message(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
         raise ClientError("Invalid message received from service") from exc
-    def on_invalid_greeting(self, routing_id: bytes, exc: InvalidMessageError) -> None:
+    def handle_invalid_greeting(self, routing_id: RoutingID, exc: InvalidMessageError) -> None:
         """Called by `receive()` when greeting message parsing raises InvalidMessageError.
 
 Raises `ClientError`.
 """
-        log.error("%s.on_invalid_greeting(%s/%s)", self.__class__.__name__, routing_id, exc)
+        log.error("%s.handle_invalid_greeting(%s/%s)", self.__class__.__name__, routing_id, exc)
         raise ClientError("Invalid greeting received from service") from exc
     def get_response(self, token: Token, timeout: int = None) -> bool:
         """Get reponse from Service.
@@ -1239,7 +1280,7 @@ session.greeting.
 
 Arguments:
     :token:   Token used for request
-    :timeout: Timeout for request [default: infinity]
+    :timeout: Timeout (in milliseconds) for request [default: infinity]
 
 Important:
     - All registered handler methods must store token of handled message into
@@ -1252,13 +1293,13 @@ Returns:
     `on_invalid_message()` or `on_invalid_greeting()` handler does not raise an exception).
 
 Raises:
-    :ClientError: When invalid greeting or message is received from service. Also `on_*`
+    :ClientError: When invalid greeting or message is received from service. Also `handle_*`
     message handlers may raise exceptions.
 """
-        log.debug("%s.get_response", self.__class__.__name__)
+        if __debug__: log.debug("%s.get_response", self.__class__.__name__)
         assert not self.chn.routed, "Routed channels are not supported"
         stop = False
-        session = self.get_session()
+        session: Session = self.get_session()
         assert session, "Active session required"
         start = monotonic()
         while not stop:
@@ -1270,12 +1311,12 @@ Raises:
                     try:
                         self.protocol.validate(zmsg, peer_role(self.role), greeting=True)
                     except InvalidMessageError as exc:
-                        self.on_invalid_greeting(session.routing_id, exc)
+                        self.handle_invalid_greeting(session.routing_id, exc)
                         return False
                 try:
                     msg = self.protocol.parse(zmsg)
                 except InvalidMessageError as exc:
-                    self.on_invalid_message(session, exc)
+                    self.handle_invalid_message(session, exc)
                     return False
                 self.dispatch(session, msg)
             if self.last_token_seen and self.last_token_seen in (token, session.greeting.token):
@@ -1283,38 +1324,38 @@ Raises:
             if timeout:
                 stop = round((monotonic() - start) * 1000) >= timeout
         return False
-    def on_unknown(self, session: TSession, msg: Message):
+    def handle_unknown(self, session: Session, msg: Message) -> None:
         """Default message handler for unrecognized messages. Raises `ClientError`."""
-        log.debug("%s.on_unknown", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_unknown", self.__class__.__name__)
         raise ClientError("The client does not know how to process received %s:%d message" %
                           (msg.message_type.name, msg.type_data))
-    def on_close(self, session: TSession, msg: CloseMessage) -> None:
+    def handle_close(self, session: Session, msg: CloseMessage) -> None:
         """Handle CLOSE message.
 
 If 'endpoint` is set in session, disconnects underlying channel from it. Then discards
 the session and raises `ServiceError`.
 """
-        log.debug("%s.on_close", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_close", self.__class__.__name__)
         self.last_token_seen = msg.token
         self.discard_session(session)
         raise ClientError("The service has closed the connection.")
-    def on_welcome(self, session: TSession, msg: WelcomeMessage) -> None:
+    def handle_welcome(self, session: Session, msg: WelcomeMessage) -> None:
         """Handle WELCOME message.
 
 Save WELCOME message into session.greeting, or raise `ClientError` for unexpected WELCOME.
 """
-        log.debug("%s.on_welcome", self.__class__.__name__)
+        if __debug__: log.debug("%s.handle_welcome", self.__class__.__name__)
         self.last_token_seen = msg.token
         if not session.greeting:
             session.greeting = msg
         else:
             raise ClientError("Unexpected WELCOME message")
-    def on_reply(self, session: TSession, msg: ReplyMessage) -> None:
+    def handle_reply(self, session: Session, msg: ReplyMessage) -> None:
         "Handle Service REPLY message."
         raise NotImplementedError
-    def on_state(self, session: TSession, msg: StateMessage) -> None:
+    def handle_state(self, session: Session, msg: StateMessage) -> None:
         "Handle STATE message."
         raise NotImplementedError
-    def on_error(self, session: TSession, msg: ErrorMessage) -> None:
+    def handle_error(self, session: Session, msg: ErrorMessage) -> None:
         "Handle ERROR message received from Service."
         raise NotImplementedError

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
@@ -37,32 +36,33 @@
 """
 
 import logging
+import typing as t
 from logging.config import fileConfig
-from typing import Dict, List
 import sys
 import os
-from enum import IntEnum
+import uuid
 from argparse import ArgumentParser, Action, ArgumentDefaultsHelpFormatter, FileType, \
      Namespace
 from configparser import ConfigParser, ExtendedInterpolation, DEFAULTSECT
 from pkg_resources import iter_entry_points
-from zmq import Context
-from saturnin.sdk.types import SaturninError, ServiceTestType
-from saturnin.sdk.config import Config, StrOption, ZMQAddressOption, EnumOption
-from saturnin.sdk.base import load
+import zmq
+from ..types import ZMQAddress, ServiceTestType, ServiceDescriptor, \
+     SaturninError, StopError
+from ..collections import Registry
+from ..config import Config, UUIDOption, ZMQAddressOption, EnumOption
+from ..service import load
+from ..test.fbsp import BaseTestRunner
 
 
 __VERSION__ = '0.1'
 
 SECTION_SERVICE_UID = 'service_uid'
 
-# Exceptions
+# Functions
 
-class Error(SaturninError):
-    "Base exception for this module."
-
-class StopError(Error):
-    "Error that should stop furter processing."
+def title(text: str, size: int=80, char: str='='):
+    "Returns centered title surrounded by char."
+    return f"  {text}  ".center(size, char)
 
 #  Classes
 
@@ -71,30 +71,49 @@ class UpperAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values.upper())
 
+class TestConfig(Config):
+    def __init__(self, name: str, description: str):
+        super().__init__(name, description)
+        #self.test_conf: Config = Config('svc_test', "Service test configuration")
+        self.service_uid: UUIDOption = \
+            self.add_option(UUIDOption('service_uid',
+                                       "Service UID (agent.uid in the Service Descriptor)",
+                                       required=True))
+        self.endpoint: ZMQAddressOption = \
+            self.add_option(ZMQAddressOption('endpoint', "Service endpoint address",
+                                             required=True))
+        self.test_type: EnumOption = \
+            self.add_option(EnumOption('test_type', ServiceTestType,
+                                       "Service endpoint address",
+                                       default=ServiceTestType.CLIENT))
+
 class TestInfo:
     """Service test information record.
 """
-    def __init__(self, section_name, descriptor, endpoint, test_type):
-        self.section_name = section_name
-        self.descriptor = descriptor
-        self.tests = load(descriptor.tests)(Context.instance())
-        self.endpoint = endpoint
-        self.test_type = test_type
+    def __init__(self, section_name: str, descriptor: ServiceDescriptor,
+                 endpoint: ZMQAddress, test_type: ServiceTestType):
+        self.section_name: str = section_name
+        self.descriptor: ServiceDescriptor = descriptor
+        self.tests: BaseTestRunner = load(descriptor.tests)(zmq.Context.instance())
+        self.endpoint: ZMQAddress = endpoint
+        self.test_type: ServiceTestType = test_type
     def run(self) -> None:
         "Run test"
         if self.test_type == ServiceTestType.CLIENT:
             self.tests.run_client_tests(self.endpoint)
         else:
             self.tests.run_raw_tests(self.endpoint)
-    name = property(lambda self: self.descriptor.agent.name, doc="Service name")
+    uid: uuid.UUID = property(lambda self: self.descriptor.agent.uid, doc="Service ID")
+    name: str = property(lambda self: self.descriptor.agent.name, doc="Service name")
 
 class Tester:
     """Service tester.
 """
     def __init__(self):
-        self.parser = ArgumentParser(prog='svc_test',
-                                     formatter_class=ArgumentDefaultsHelpFormatter,
-                                     description="Saturnin service tester (classic version)")
+        self.parser: ArgumentParser = \
+            ArgumentParser(prog='svc_test',
+                           formatter_class=ArgumentDefaultsHelpFormatter,
+                           description="Saturnin service tester (classic version)")
         self.parser.add_argument('--version', action='version', version='%(prog)s '+__VERSION__)
         #
         group = self.parser.add_argument_group("positional arguments")
@@ -106,7 +125,7 @@ class Tester:
                            help="Configuration file")
         group.add_argument('-o', '--output-dir', metavar='DIR',
                            help="Force directory for log files and other output")
-        group.add_argument('-t','--test-type', action=UpperAction,
+        group.add_argument('-t', '--test-type', action=UpperAction,
                            choices=['client', 'raw'],
                            help="Force test type.")
         group.add_argument('--dry-run', action='store_true',
@@ -121,34 +140,27 @@ class Tester:
                            choices=[x.lower() for x in logging._nameToLevel
                                     if isinstance(x, str)],
                            help="Logging level")
+        group.add_argument('--trace', action='store_true',
+                           help="Log unexpected errors with stack trace")
         self.parser.set_defaults(log_level='WARNING', job_name=['tests'],
-                                 config='svc_test.cfg', raw=False)
+                                 config='svc_test.cfg')
         #
-        self.conf = ConfigParser(interpolation=ExtendedInterpolation())
-        self.test_conf = Config('svc_test', "Service test configuration")
-        self.test_conf._add_option(StrOption('service_name',
-                                             "Service name (as specified in the Service Descriptor)",
-                                             required=True))
-        self.test_conf._add_option(ZMQAddressOption('endpoint', "Service endpoint address",
-                                                    required=True))
-        self.test_conf._add_option(EnumOption('test_type', ServiceTestType,
-                                              "Service endpoint address",
-                                              default=ServiceTestType.CLIENT))
+        self.conf: ConfigParser = ConfigParser(interpolation=ExtendedInterpolation())
+        self.test_conf: TestConfig = TestConfig('svc_test', "Service test configuration")
         self.args: Namespace = None
         self.config_filename: str = None
         self.log: logging.Logger = None
-        self.service_registry: Dict = None
-        self.name_map: Dict = None
-        self.tests: List = []
+        self.service_registry: Registry = Registry()
+        self.tests: t.List[BaseTestRunner] = []
     def verbose(self, *args, **kwargs) -> None:
         "Log verbose output, not propagated to upper loggers."
         if self.args.verbose:
             self.log.debug(*args, **kwargs)
-    def initialize(self):
+    def initialize(self) -> None:
         "Initialize tester from command line arguments and configuration file."
         # Command-line arguments
-        self.args = self.parser.parse_args()
-        self.config_filename = self.args.config.name
+        self.args: Namespace = self.parser.parse_args()
+        self.config_filename: str = self.args.config.name
         # Configuration
         self.conf.read_file(self.args.config)
         # Defaults
@@ -162,14 +174,15 @@ class Tester:
             self.args.config.seek(0)
             fileConfig(self.args.config)
         else:
-            logging.basicConfig(format='%(asctime)s %(processName)s:%(threadName)s:%(name)s %(levelname)s: %(message)s')
+            logging.basicConfig(format='%(asctime)s %(processName)s:%(threadName)s:'\
+                                '%(name)s %(levelname)s: %(message)s')
         logging.getLogger().setLevel(self.args.log_level)
         # Script output configuration
         self.log = logging.getLogger('svc_test')
         self.log.setLevel(logging.DEBUG)
         self.log.propagate = False
         if not self.args.log_only:
-            output = logging.StreamHandler(sys.stdout)
+            output: logging.StreamHandler = logging.StreamHandler(sys.stdout)
             output.setFormatter(logging.Formatter())
             lvl = logging.INFO
             if self.args.verbose:
@@ -179,15 +192,14 @@ class Tester:
             output.setLevel(lvl)
             self.log.addHandler(output)
         self.args.config.close()
-    def prepare(self):
+    def prepare(self) -> None:
         "Prepare list of tests to run."
         try:
             # Load descriptors for registered services
-            service_descriptors = (entry.load() for entry in iter_entry_points('saturnin.service'))
-            self.service_registry = dict((sd.agent.uid, sd) for sd in service_descriptors)
-            self.name_map = dict((sd.agent.name, sd) for sd in self.service_registry.values())
+            self.service_registry.extend(entry.load() for entry in
+                                         iter_entry_points('saturnin.service'))
             self.conf[SECTION_SERVICE_UID] = dict((sd.agent.name, sd.agent.uid.hex) for sd
-                                                  in self.service_registry.values())
+                                                  in self.service_registry)
             # Create list of test sections
             sections = []
             for job_name in self.args.job_name:
@@ -214,52 +226,59 @@ class Tester:
                 except SaturninError as exc:
                     raise StopError("Error in configuration section '%s'\n%s" % \
                                     (test_section, str(exc)))
-                svc_name = self.test_conf.service_name
-                if not svc_name in self.name_map:
-                    raise StopError("Unknown service '%s'" % svc_name)
-                test_type = self.test_conf.test_type
+                svc_uid = self.test_conf.service_uid.value
+                if not svc_uid in self.service_registry:
+                    raise StopError("Unknown service '%s'" % svc_uid)
+                test_type = self.test_conf.test_type.value
                 if self.args.test_type:
-                    test_type = ServiceTestType._member_map_[self.args.test_type]
-                test_info = TestInfo(test_section, self.name_map[svc_name],
-                                     self.test_conf.endpoint, test_type)
+                    test_type = ServiceTestType.get_member_map()[self.args.test_type]
+                test_info: TestInfo = TestInfo(test_section, self.service_registry[svc_uid],
+                                               self.test_conf.endpoint.value, test_type)
                 self.tests.append(test_info)
             #
         except StopError as exc:
             self.log.error(str(exc))
             self.terminate()
         except Exception as exc:
-            self.log.exception('Unexpected error: %s', str(exc))
+            if self.args.trace:
+                self.log.exception('Unexpected error: %s', str(exc))
+            else:
+                self.log.error('Unexpected error: %s', str(exc))
             self.terminate()
-    def run(self):
+    def run(self) -> None:
         "Run prepared services."
         try:
             for test in self.tests:
                 # print configuration
-                self.verbose("Prepared to run tests '%s':" % test.section_name)
-                self.verbose("  service_name = '%s'" % test.name)
-                self.verbose("  endpoint = '%s'" % test.endpoint)
+                self.verbose(title("Test '%s'" % test.section_name))
+                self.verbose("service_uid = %s [%s]" % (test.uid, test.name))
+                self.verbose("endpoint = %s" % test.endpoint)
+                self.verbose("test type = %s" % test.test_type.name)
             if not self.args.dry_run:
+                self.verbose(title("Running tests", char='*'))
                 for test in self.tests:
                     try:
-                        self.log.info("Runing %s tests '%s':", test.test_type.name, test.section_name)
+                        self.log.info("Runing %s test '%s':", test.test_type.name,
+                                      test.section_name)
                         test.run()
                     except Exception as exc:
                         self.log.info("\nTest failed with exception: %s", str(exc))
-                        logging.exception("Test '%s' failed with exception: %s",
-                                          test.section_name, str(exc))
             #
         except StopError as exc:
             self.log.error(str(exc))
             self.terminate()
         except Exception as exc:
-            self.log.exception('Unexpected error: %s', str(exc))
+            if self.args.trace:
+                self.log.exception('Unexpected error: %s', str(exc))
+            else:
+                self.log.error('Unexpected error: %s', str(exc))
             self.terminate()
-    def shutdown(self):
+    def shutdown(self) -> None:
         "Shut down the tester."
         logging.debug("Terminating ZMQ context")
-        Context.instance().term()
+        zmq.Context.instance().term()
         logging.shutdown()
-    def terminate(self):
+    def terminate(self) -> t.NoReturn:
         "Terminate execution with exit code 1."
         try:
             self.shutdown()
@@ -268,11 +287,8 @@ class Tester:
 
 def main():
     "Main function"
-    tester = Tester()
+    tester: Tester = Tester()
     tester.initialize()
     tester.prepare()
     tester.run()
     tester.shutdown()
-
-if __name__ == '__main__':
-    main()
