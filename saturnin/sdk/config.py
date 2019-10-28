@@ -898,7 +898,7 @@ Configuration options:
                                                  required=True))
 
 def create_config(_cls: t.Type[Config], name: str, description: str) -> Config:
-    """Return newly created Config in stance. Intended to be used with `functools.partial`
+    """Return newly created Config instance. Intended to be used with `functools.partial`
 in `ServiceDescriptor.config` definitions.
 """
     return _cls(name, description)

@@ -63,6 +63,8 @@ SECTION_NET_ADDRESS = 'net_address'
 SECTION_SERVICE_UID = 'service_uid'
 SECTION_PEER_UID = 'peer_uid'
 
+LOG_FORMAT = '%(levelname)s: %(processName)s:%(threadName)s:%(name)s: %(message)s'
+
 # Functions
 
 def title(text: str, size: int=80, char: str='='):
@@ -210,8 +212,7 @@ class Runner:
             self.args.config.seek(0)
             fileConfig(self.args.config)
         else:
-            logging.basicConfig(format='%(asctime)s %(processName)s:'\
-                                '%(threadName)s:%(name)s %(levelname)s: %(message)s')
+            logging.basicConfig(format=LOG_FORMAT)
         logging.getLogger().setLevel(self.args.log_level)
         # Script output configuration
         self.log = logging.getLogger('svc_run')

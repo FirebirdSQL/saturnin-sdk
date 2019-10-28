@@ -117,8 +117,8 @@ Attributes:
         self.message_type: MsgType = MsgType.UNKNOWN
         self.flags: MsgFlag = MsgFlag(0)
         self.type_data: int = 0
-        self.data_frame: t.Union[None, t.List[fbsd_proto.ErrorDescription],
-                                 fbdp_proto.FBDPOpenDataframe] = None
+        self.data_frame: t.Union[None, fbdp_proto.FBDPOpenDataframe,
+                                 t.List[fbsd_proto.ErrorDescription]] = None
     def from_zmsg(self, frames: t.Sequence) -> None:
         """Populate message attributes from sequence of ZMQ data frames. The `data`
 attribute contains a copy of all message frames.
@@ -557,7 +557,7 @@ Arguments:
     def close(self):
         "Close the data pipe connection."
         if __debug__: log.debug("%s.close()", self.__class__.__name__)
-        session = self.get_session()
+        session: Session = self.get_session()
         if session is not None:
             if session.data_pipe:
                 self.send_close(session, ErrorCode.OK)

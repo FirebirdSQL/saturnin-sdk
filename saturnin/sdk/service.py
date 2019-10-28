@@ -35,13 +35,13 @@
 """
 
 import sys
-import logging
 import typing as t
 from importlib import import_module
 import time
 import zmq
 from .types import InterfaceDescriptor, AgentDescriptor, PeerDescriptor, ServiceDescriptor, \
      ZMQAddress, ZMQAddressList, ServiceFacilities, InvalidMessageError, ServiceError
+from .debug import logging, log_on_start, log_on_end
 from .base import ChannelManager, RouterChannel
 from .config import Config
 from .protocol.fbsp import validate_welcome_pb, fbsp_proto
@@ -56,6 +56,7 @@ TEvent = t.TypeVar('TEvent', bound='Event')
 
 # Functions
 
+@log_on_start("{__fn}({spec!r})", logger=log)
 def load(spec: str) -> t.Any:
     """Return object from module. Module is imported if necessary.
 
@@ -125,34 +126,36 @@ Raises:
         else:
             value = getattr(self, name, *args)
         return value
+    @log_on_start("{__fn}()", logger=log)
     def validate(self) -> None:
         """Validate that service implementation is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
-        if __debug__: log.debug("%s.validate", self.__class__.__name__)
         assert self.mngr.channels, "Channel manager without channels"
         for chn in self.mngr.channels:
             assert chn.handler, "Channel without handler"
+    @log_on_start("{__fn}()", logger=log)
     def initialize(self, svc: 'BaseService') -> None:
         """Service initialization.
 
 Creates the channel manager with svc.zmq_context. The descendant classes must create at
 least one communication channel.
 """
-        if __debug__: log.debug("%s.initialize", self.__class__.__name__)
         self.mngr = ChannelManager(svc.zmq_context)
+    @log_on_start("{__fn}()", logger=log)
     def finalize(self, svc: 'BaseService') -> None:
         """Service finalization.
 
 Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
 is not defined, uses linger 1 for forced shutdown.
 """
-        if __debug__: log.debug("%s.finalize", self.__class__.__name__)
         self.mngr.shutdown(self.get('shutdown_linger', 1))
+    @log_on_start("{__fn}()", logger=log)
     def configure(self, svc: 'BaseService', config: Config) -> None:
         "Service configuration. Default implementation does nothing."
+    @log_on_start("{__fn}()", logger=log)
     def idle(self) -> None:
         """Should by called by service when waiting for messages exceeds timeout. Default
 implementation does nothing.
@@ -180,26 +183,25 @@ Arguments:
         self.impl: BaseServiceImpl = impl
         self.config: Config = config
         self._ready: bool = False
+    @log_on_start("{__fn}()", logger=log)
     def validate(self) -> None:
         """Validate that service is properly initialized and configured.
 
 Raises:
     :AssertionError: When any issue is detected.
 """
-        if __debug__: log.debug("%s.validate", self.__class__.__name__)
         self.impl.validate()
     def run(self) -> None:
         """Runs the service."""
         raise NotImplementedError
+    @log_on_start("{__fn}() [{self.impl.agent.name}:{self.impl.agent.uid}]",
+                  logger=log)
     def initialize(self) -> None:
         """Runs initialization, configuration and validation of the service implementation.
 
 Raises:
     :ServiceError: When service is not properly initialized and configured.
 """
-        if __debug__:
-            log.debug("Initialization of the service %s:%s", self.impl.agent.name,
-                      self.impl.agent.uid)
         self.impl.initialize(self)
         self.impl.configure(self, self.config)
         try:
@@ -316,6 +318,7 @@ supplement for peer or agent even if they are defined in descriptors.
             intf = self.welcome_df.api.add()
             intf.number = interface.number
             intf.uid = interface.uid.bytes
+    @log_on_start("{__fn}()", logger=log)
     def configure(self, svc: BaseService, config: Config) -> None:
         """Performs next actions:
     - Binds service router channel to specified endpoints.
