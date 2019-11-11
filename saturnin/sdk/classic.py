@@ -58,23 +58,26 @@ from .config import MicroserviceConfig
 # Logger
 
 log = logging.getLogger(__name__)
+"Classic service logger"
 
 # Types
 
 TRuntime = t.Union[None, threading.Thread, multiprocessing.Process]
+"Service runtime executor"
 TRuntimeEvent = t.Union[None, threading.Event, multiprocessing.Event]
+"Service runtime event object"
 
 # Classes
 
 class SimpleService(BaseService):
     """Simple Firebird Butler Service.
 
-Has simple Event-controlled I/O loop using `ChannelManager.wait()`. Incomming messages
-are processed by `receive()` of channel handler.
+Has simple Event-controlled I/O loop using :meth:`saturnin.sdk.base.ChannelManager.wait`.
+Incomming messages are processed by `receive()` of channel handler.
 
 Attributes:
-    :mngr:    ChannelManager
-    :timeout: How long (in milliseconds) it waits for incoming messages (default 1 sec).
+    mngr:    ChannelManager
+    timeout: How long (in milliseconds) it waits for incoming messages (default 1 sec).
 """
     def __init__(self, impl: MicroserviceImpl, zmq_context: zmq.Context, config: MicroserviceConfig):
         super().__init__(impl, zmq_context, config)
@@ -86,7 +89,7 @@ Attributes:
 The I/O loop has next steps:
 
 - It runs deferred ChannelManager tasks (typically resend operations). By default it runs
-one deferred task per loop cycle, unless ServiceImpl-defined `all_deferred` is True.
+  one deferred task per loop cycle, unless ServiceImpl-defined `all_deferred` is True.
 - Uses ChannelManager.wait(timeout) for messages.
 - One message per channel is received per loop cycle.
 - If there are no messages on input, runs ServiceImpl.on_idle()
@@ -165,25 +168,25 @@ class ServiceExecutor(Distinct):
     """Service executor.
 
 Attributes:
-    :uid:        Peer UID.
-    :name:       Service instance name.
-    :endpoints:  List of service endpoints, or None for microservice.
-    :descriptor: Service descriptor.
-    :facilities: Service run-time facilities.
-    :mode:       Service execution mode.
-    :config:     Copy of configuration object used to start the service.
-    :peer:       PeerDescriptor for running service or None
-    :runtime:    None, or threading.Thread or multiprocessing.Process instance.
-    :stop_event: Event used to stop the service.
+    uid:        Peer UID.
+    name:       Service instance name.
+    endpoints:  List of service endpoints, or None for microservice.
+    descriptor: Service descriptor.
+    facilities: Service run-time facilities.
+    mode:       Service execution mode.
+    config:     Copy of configuration object used to start the service.
+    peer:       PeerDescriptor for running service or None
+    runtime:    None, or threading.Thread or multiprocessing.Process instance.
+    stop_event: Event used to stop the service.
 """
     def __init__(self, svc_descriptor: ServiceDescriptor, peer_uid: uuid.UUID = None,
                  name: str = None):
         """Initialization.
 
 Arguments:
-    :svc_descriptor: Service descriptor.
-    :peer_uid: Optional instance (peer) ID [default: uuid1()].
-    :name: Instance (peer) name [default: peer_id.hex].
+    svc_descriptor: Service descriptor.
+    peer_uid: Optional instance (peer) ID [default: uuid1()].
+    name: Instance (peer) name [default: peer_id.hex].
 """
         self._peer_uid: uuid.UUID = peer_uid if peer_uid else uuid.uuid1()
         self.name: str = name if name else self.uid.hex
@@ -210,12 +213,12 @@ If `mode` is ANY or THREAD, the service is executed in it's own thread. Otherwis
 executed in separate child process.
 
 Arguments:
-    :config:  Service configuration.
-    :timeout: The timeout (in milliseconds) to wait for service to start [Default: DEFAULT_TIMEOUT].
+    config:  Service configuration.
+    timeout: The timeout (in milliseconds) to wait for service to start [Default: DEFAULT_TIMEOUT].
 
 Raises:
-    :SaturninError: The service is already running.
-    :TimeoutError:  The service did not start on time.
+    SaturninError: The service is already running.
+    TimeoutError:  The service did not start on time.
 """
         if __debug__: log.debug("%s(%s).start", self.__class__.__name__, self.name)
         if __debug__:
@@ -287,11 +290,11 @@ Raises:
         """Stop the service. Does nothing if service is not running.
 
 Arguments:
-    :timeout: None (infinity), or a floating point number specifying a timeout for
-              the operation in seconds (or fractions thereof) [Default: 10s].
+    timeout: None (infinity), or a floating point number specifying a timeout for
+             the operation in seconds (or fractions thereof) [Default: 10s].
 
 Raises:
-    :TimeoutError:  The service did not stop on time.
+    TimeoutError:  The service did not stop on time.
 """
         if __debug__: log.debug("%s(%s).stop", self.__class__.__name__, self.name)
         if self.is_running():
@@ -309,7 +312,7 @@ Terminate should be called ONLY when call to stop() (with sensible timeout) fail
 Does nothing when service is not running.
 
 Raises:
-    :SaturninError:  When service termination fails.
+    SaturninError:  When service termination fails.
 """
         if __debug__: log.debug("%s(%s).terminate", self.__class__.__name__, self.name)
         if self.is_running():

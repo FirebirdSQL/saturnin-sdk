@@ -55,8 +55,10 @@ from ..test.fbsp import BaseTestRunner
 
 
 __VERSION__ = '0.1'
+"Service test runner version"
 
 SECTION_SERVICE_UID = 'service_uid'
+"Configuration section name for service UIDs"
 
 # Functions
 
@@ -72,6 +74,7 @@ class UpperAction(Action):
         setattr(namespace, self.dest, values.upper())
 
 class TestConfig(Config):
+    "Test configuration"
     def __init__(self, name: str, description: str):
         super().__init__(name, description)
         #self.test_conf: Config = Config('svc_test', "Service test configuration")
@@ -108,6 +111,72 @@ class TestInfo:
 
 class Tester:
     """Service tester.
+
+.. program:: svc_test
+
+usage::
+
+    svc_test [-h] [--version] [-c FILE] [-o DIR] [-t {client,raw}]
+                [--dry-run] [-v] [-q] [--log-only]
+                [-l {critical,fatal,error,warn,warning,info,debug,notset}]
+                [--trace]
+                [job_name [job_name ...]]
+
+**optional arguments:**
+
+.. option::  -h, --help
+
+   show this help message and exit
+
+.. option::  --version
+
+   show program's version number and exit
+
+**positional arguments:**
+
+.. option::  job_name
+
+    Job name (default: ['tests'])
+
+**run arguments:**
+
+.. option::  -c FILE, --config FILE
+
+    Configuration file (default: svc_run.cfg)
+
+.. option::  -o DIR, --output-dir DIR
+
+    Force directory for log files and other output (default: ${here})
+
+.. option::  -t {client,raw}, --test-type {client,raw}
+
+    Force test type. (default: None)
+
+.. option::  --dry-run
+
+    Prepare execution but do not run any test (default: False)
+
+**output arguments:**
+
+.. option::  -v, --verbose
+
+    Verbose output (default: False)
+
+.. option::  -q, --quiet
+
+    No screen output (default: False)
+
+.. option::  --log-only
+
+    Suppress all screen output including error messages (default: False)
+
+.. option::  -l {critical,fatal,error,warn,warning,info,debug,notset}, --log-level {critical,fatal,error,warn,warning,info,debug,notset}
+
+    Logging level (default: WARNING)
+
+.. option::  --trace
+
+    Log unexpected errors with stack trace (default: False)
 """
     def __init__(self):
         self.parser: ArgumentParser = \
@@ -129,7 +198,7 @@ class Tester:
                            choices=['client', 'raw'],
                            help="Force test type.")
         group.add_argument('--dry-run', action='store_true',
-                           help="Prepare execution but do not run any service")
+                           help="Prepare execution but do not run any test")
         #
         group = self.parser.add_argument_group("output arguments")
         group.add_argument('-v', '--verbose', action='store_true', help="Verbose output")
@@ -246,7 +315,7 @@ class Tester:
                 self.log.error('Unexpected error: %s', str(exc))
             self.terminate()
     def run(self) -> None:
-        "Run prepared services."
+        "Run prepared service tests."
         try:
             for test in self.tests:
                 # print configuration

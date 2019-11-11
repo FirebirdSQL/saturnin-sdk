@@ -35,12 +35,15 @@
 
 import uuid
 
-# firebird.butler.platform.saturnin-sdk
 PLATFORM_OID: str = '1.3.6.1.4.1.53446.1.2.0'
+"Platform OID (`firebird.butler.platform.saturnin-sdk`)"
 PLATFORM_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, PLATFORM_OID)
+"Platform UID (:func:`~uuid.uuid5` - NAMESPACE_OID)"
 PLATFORM_VERSION: str = '0.4.0'
+"Platform version (semver)"
 
-# firebird.butler.vendor.firebird
 VENDOR_OID: str = '1.3.6.1.4.1.53446.1.3.0'
+"Platform vendor OID (`firebird.butler.vendor.firebird`)"
 VENDOR_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, VENDOR_OID)
+"Platform vendor UID (:func:`~uuid.uuid5` - NAMESPACE_OID)"
 

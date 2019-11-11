@@ -45,27 +45,38 @@ from .debug import logging, log_on_start, log_on_end
 
 # Constants
 
+#: Internal routing ID
 INTERNAL_ROUTE = b'INTERNAL'
+#: Default time limit in seconds for how long session could be suspended before it's cancelled
 RESUME_TIMEOUT = 10
 
-# Logger
+# Loggers
 
 log_chnmgr = logging.getLogger('saturnin.sdk.base.channel_mngr')
+"Logger for channel managers"
 log_chn = logging.getLogger('saturnin.sdk.base.channel')
+"Logger for channels"
 log_msghnd = logging.getLogger('saturnin.sdk.base.msg_handler')
+"Logger for message handlers"
 log_ssn = logging.getLogger('saturnin.sdk.base.session')
+"Logger for sessions"
 
-log_chnmgr.setLevel(logging.DEBUG)
-log_chn.setLevel(logging.DEBUG)
-log_msghnd.setLevel(logging.DEBUG)
+#log_chnmgr.setLevel(logging.DEBUG)
+#log_chn.setLevel(logging.DEBUG)
+#log_msghnd.setLevel(logging.DEBUG)
 
 # Types
 
 TSession = t.TypeVar('TSession', bound='Session')
+"Session type"
 TMessageHandler = t.TypeVar('TMessageHandler', bound='MessageHandler')
+"Message handler type"
 TMessageFactory = t.Callable[[], t.TypeVar('TMessage', bound='Message')]
+"Message factory callable"
 TCancelSessionCallback = t.Callable[[TMessageHandler, TSession], None]
+"Session cancelation callback"
 TSockOpts = t.Dict[str, t.Any]
+"ZMQ socket options"
 
 # Functions
 
@@ -89,15 +100,14 @@ class ChannelManager:
     """Manager of ZeroMQ communication channels.
 
 Attributes:
-    :ctx:      ZMQ Context instance.
-    :channels: Channels associated with manager
-    :deferred: List with deferred work. Contains tuples with (Callable, List).
+    ctx (:class:`zmq.Context`): ZMQ Context instance
+    deferred (List[Tuple[Callable,List]]): List with deferred work. Contains tuples with
+        callable and arguments.
 """
     def __init__(self, context: zmq.Context):
-        """Manager of ZeroMQ communication channels.
-
-Arguments:
-    :context: ZMQ Context instance.
+        """
+Args:
+    context (:class:`zmq.Context`): ZMQ Context instance.
 """
         self.ctx: zmq.Context = context
         self.deferred: t.List[t.Tuple[t.Callable, t.List]] = []
@@ -115,7 +125,7 @@ Arguments:
     @log_on_start("{_fn}(process_all={process_all})", logger=log_chnmgr)
     def process_deferred(self, process_all: bool = False) -> None:
         """Process one or all deferred callback(s). All processed tasks are removed from
-`deferred` queue.
+:attr:`deferred` queue.
 """
         if self.deferred:
             if process_all:
@@ -131,9 +141,9 @@ Arguments:
         """Create new ZMQ socket.
 
 Arguments:
-    :socket_type: The socket type, which can be any of the 0MQ socket types:
-                  REQ, REP, PUB, SUB, PAIR, DEALER, ROUTER, PULL, PUSH, etc.
-    :**kwargs:    will be passed to the __init__ method of the socket class.
+    socket_type: The socket type, which can be any of the 0MQ socket types:
+                 REQ, REP, PUB, SUB, PAIR, DEALER, ROUTER, PULL, PUSH, etc.
+    kwargs: keyword arguments are passed to the `__init__` method of the socket class.
 """
         return self.ctx.socket(socket_type, **kwargs)
     @log_on_start("{_fn}({channel.__class__.__name__}) [identity={channel.identity}]",
@@ -175,19 +185,19 @@ Arguments:
         """Wait for I/O events on registered channnels.
 
 Arguments:
-    :timeout: The timeout in milliseconds. `None` value means `infinite`.
+    timeout: The timeout in milliseconds. `None` value means `infinite`.
 
 Returns:
-    {TChannel: events} dictionary.
+    Dictionary [TChannel, events].
 """
         return dict((self.__chmap[skt], e) for skt, e in self._poller.poll(timeout))
     @log_on_end("Channel manager shut down", logger=log_chnmgr)
     @log_on_start("Shutting down channel manager", logger=log_chnmgr)
     def shutdown(self, *args) -> None:
-        """Terminate all managed channels.
+        """Close all managed channels.
 
 Arguments:
-    :linger: Linger parameter for `Channel.terminate()`
+    linger (int): Linger parameter for :meth:`Channel.close`
 """
         for chn in self.channels:
             self.unregister(chn)
@@ -200,16 +210,16 @@ Arguments:
 class Message:
     """Base class for protocol message.
 
-The base class simply holds ZMQ multipart message in its `data` attribute. Child classes
-can override :meth:`from_zmsg` and :meth:`as_zmsg` methods to pack/unpack some or all
-parts of ZMQ message into their own attributes. In such a case, unpacked data must be
-removed from `data` attribute.
+The base class simply holds ZMQ multipart message in its :attr:`~Message.data` attribute.
+Child classes can override :meth:`~Message.from_zmsg()` and :meth:`~Message.as_zmsg()`
+methods to pack/unpack some or all parts of ZMQ message into their own attributes. In such
+a case, unpacked data must be removed from :attr:`~Message.data` attribute.
 
 Abstract methods:
-   :validate_zmsg: Verifies that sequence of ZMQ frames is a valid message.
+   :meth:`validate_zmsg()`
 
 Attributes:
-    :data:  Sequence of data frames
+    data (list[bytes]):  Sequence of data frames
 """
     def __init__(self):
         self.data: t.List[bytes] = []
@@ -217,14 +227,14 @@ Attributes:
         """Populate message data from sequence of ZMQ data frames.
 
 Arguments:
-    :frames: Sequence of frames that should be deserialized.
+    frames: Sequence of frames that should be deserialized.
 """
         self.data = list(frames)
     def as_zmsg(self) -> t.List:
         """Returns message as sequence of ZMQ data frames."""
         return self.data.copy()
     def clear(self) -> None:
-        """Clears message data."""
+        "Clears message data."
         self.data.clear()
     def copy(self) -> 'Message':
         "Returns copy of the message."
@@ -233,23 +243,21 @@ Arguments:
         return msg
     @classmethod
     def validate_zmsg(cls, zmsg: t.Sequence) -> None:
-        """Verifies that sequence of ZMQ frames is a valid message.
-
-This method MUST be overridden in child classes.
+        """`Abstract` method. Verifies that sequence of ZMQ frames is a valid message.
 
 Arguments:
-    :zmsg: Sequence of ZMQ frames for validation.
+    zmsg: Sequence of ZMQ frames for validation.
 
 Raises:
-    :InvalidMessageError: When formal error is detected in any zmsg frame.
+    InvalidMessageError: When formal error is detected in any zmsg frame.
 """
         raise NotImplementedError
     def has_data(self) -> bool:
-        """Returns True if `data` attribute is not empty."""
+        """Returns True if :attr:`data` attribute is not empty."""
         return len(self.data) > 0
     def has_zmq_frames(self) -> bool:
-        """Returns True if any item in `data` attribute is a zmq.Frame object (False if all are
-bytes).
+        """Returns True if any item in :attr:`data` attribute is a :class:`zmq.Frame` object
+(False if all are bytes).
 """
         for item in self.data:
             if isinstance(item, Frame):
@@ -261,13 +269,13 @@ class Session:
     """Base Peer Session class.
 
 Attributes:
-    :routing_id: (bytes) Channel routing ID
-    :endpoint: (str) Connected service endpoint address, if any
-    :pending_since: (float) Value is either None or monotonic() time of first unsuccessful
-        send operation (i.e. notes time of suspension and start of
-        `BaseMessageHandler.resume_timeout` period).
-    :messages: (list) List of deferred messages.
-    :discarded: (bool) True if sessions was discarded
+    routing_id (bytes): Channel routing ID
+    endpoint (str): Connected service endpoint address, if any
+    pending_since (float): Value is either None or :func:`~time.monotonic` time of first
+        unsuccessful send operation (i.e. notes time of suspension and start of
+        :attr:`MessageHandler.resume_timeout` period)
+    messages (list[Message]): List of deferred messages
+    discarded (bool): True if sessions was discarded
 """
     def __init__(self, routing_id: RoutingID):
         self.routing_id: RoutingID = routing_id
@@ -277,16 +285,16 @@ Attributes:
         self.discarded = False
     @log_on_start("{__fn}(#frames={len_zmsg})", logger=log_ssn, post_process={'zmsg': len})
     def send_later(self, zmsg: t.List) -> None:
-        """Add ZMQ message to deferred queue."""
+        """Add ZMQ message to deferred queue"""
         if not self.messages:
             self.pending_since = monotonic()
         self.messages.append(zmsg)
     def get_next_message(self) -> t.List:
-        """Returns next deferred message."""
+        """Returns next deferred message"""
         return self.messages[0]
     def is_suspended(self) -> bool:
         """Returns True if session is suspended (waiting for successful resend of queued
-messages)."""
+messages)"""
         return self.pending_since is not None
     def message_sent(self) -> None:
         """Notify session that first queued message was successfully sent, so it could be
@@ -301,34 +309,38 @@ The main purpose of protocol class is to validate ZMQ messages and create protoc
 This base class defines common interface for parsing and validation. Descendant classes
 typically add methods for creation of protocol messages.
 
-Class attributes:
-   :OID:        string with protocol OID (dot notation). MUST be set in child class.
-   :UID:        UUID instance that identifies the protocol. MUST be set in child class.
-   :REVISION:   Protocol revision (default 1)
+Attributes:
+   OID:        string with protocol OID (dot notation). MUST be set in child class.
+   UID:        UUID instance that identifies the protocol. MUST be set in child class.
+   REVISION:   Protocol revision (default 1)
 """
     OID: str = '1.3.6.1.4.1.53446.1.5' # firebird.butler.protocol
     UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, OID)
     REVISION: int = 1
     def __init__(self, message_factory: TMessageFactory = Message):
+        """
+Arguments:
+    message_factory: Callable that returns :class:`Message` instance
+"""
         self.message_factory: TMessageFactory = message_factory
     def has_greeting(self) -> bool:
         """Returns True if protocol uses greeting messages.
 
-The BaseProtocol always returns False.
+The base Protocol class always returns False.
 """
         return False
     def parse(self, zmsg: t.Sequence) -> Message:
         """Parse ZMQ message into protocol message.
 
 Arguments:
-    :zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
+    zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
 
 Returns:
-    New protocol message instance with parsed ZMQ message. The BaseProtocol implementation
-    returns BaseMessage instance.
+    New protocol message instance with parsed ZMQ message. The base Protocol implementation
+    returns base :class:`Message` instance.
 
 Raises:
-    :InvalidMessageError: If message is not a valid protocol message.
+    InvalidMessageError: If message is not a valid protocol message.
 """
         msg = self.message_factory()
         msg.from_zmsg(zmsg)
@@ -336,11 +348,11 @@ Raises:
     def is_valid(self, zmsg: t.List, origin: Origin) -> bool:
         """Return True if ZMQ message is a valid protocol message, otherwise returns False.
 
-Exceptions other than `InvalidMessageError` are not caught.
+Exceptions other than :class:`~saturnin.sdk.types.InvalidMessageError` are not caught.
 
 Arguments:
-    :zmsg: Sequence of bytes or :class:`zmq.Frame` instances
-    :origin: Origin of received message in protocol context.
+    zmsg: Sequence of bytes or :class:`zmq.Frame` instances
+    origin: Origin of received message in protocol context.
 """
         try:
             self.validate(zmsg, origin)
@@ -354,12 +366,12 @@ Arguments:
 The BaseProtocol implementation does nothing.
 
 Arguments:
-    :zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
-    :origin: Origin of received message in protocol context.
-    :kwargs: Additional keyword-only arguments
+    zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
+    origin: Origin of received message in protocol context.
+    kwargs: Additional keyword-only arguments
 
 Raises:
-    :InvalidMessageError: If message is not a valid protocol message.
+    InvalidMessageError: If message is not a valid protocol message.
 """
         return
 
@@ -367,26 +379,21 @@ class Channel:
     """Base Class for ZeroMQ communication channel (socket).
 
 Attributes:
-    :routed:      True if channel uses internal routing
-    :socket_type: ZMQ socket type.
-    :direction:   Direction of transmission [default: SocketDirection.BOTH]
-    :socket:      ZMQ socket for transmission of messages.
-    :handler:     Message handler used to process messages received from peer(s).
-    :uid:         Unique channel ID used by channel manager.
-    :mngr_poll:   True if channel should register its socket into manager Poller.
-    :snd_timeout: Timeout for send operations.
-    :rcv_timeout: Timeout for receive operations.
-    :endpoints:   List of binded/connected endpoints.
-    :flags:       ZMQ flags used for send() and receive().
-    :sock_opts:   Dictionary with socket options that should be set after socket creation.
-
-R/O attributes:
-    :mode:        BIND/CONNECT mode for socket.
-    :manager:     The channel manager to which this channel belongs.
-    :identity:    Identity value for ZMQ socket.
-
-Abstract methods:
-   :create_socket: Create ZMQ socket for this channel.
+    routed:      True if channel uses internal routing
+    socket_type: ZMQ socket type
+    direction:   Direction of transmission [default: SocketDirection.BOTH]
+    socket:      ZMQ socket for transmission of messages
+    handler:     Message handler used to process messages received from peer(s)
+    uid:         Unique channel ID used by channel manager
+    mngr_poll:   True if channel should register its socket into manager Poller
+    snd_timeout: Timeout for send operations
+    rcv_timeout: Timeout for receive operations
+    endpoints:   List of binded/connected endpoints
+    flags:       ZMQ flags used by :meth:`send` and :meth:`receive`
+    sock_opts:   Dictionary with socket options that should be set after socket creation.
+    mode:        BIND/CONNECT mode for socket.
+    manager:     The channel manager to which this channel belongs.
+    identity:    Identity value for ZMQ socket.
 """
     @log_on_start("{__fn}(identity={identity!r},mngr_poll={mngr_poll!r},"\
                   "snd_timeout={snd_timeout!r},rcv_timeout={rcv_timeout!r},flags={flags!r},"\
@@ -396,12 +403,12 @@ Abstract methods:
         """Base Class for ZeroMQ communication channel (socket).
 
 Arguments:
-    :identity: Identity for ZMQ socket.
-    :mngr_poll: True to register into Channel Manager `Poller`. [default=True]
-    :snd_timeout: Timeout for send operation on the socket in milliseconds. [default=100]
-    :rcv_timeout: Timeout for receive operation on the socket in milliseconds. [default=100]
-    :flags: Flags for send() and receive(). [default=NOBLOCK]
-    :sock_opts: Dictionary with socket options that should be set after socket creation.
+    identity: Identity for ZMQ socket.
+    mngr_poll: True to register into Channel Manager `Poller`. [default=True]
+    snd_timeout: Timeout for send operation on the socket in milliseconds. [default=100]
+    rcv_timeout: Timeout for receive operation on the socket in milliseconds. [default=100]
+    flags: Flags for send() and receive(). [default=NOBLOCK]
+    sock_opts: Dictionary with socket options that should be set after socket creation.
 """
         self.socket_type: int = None
         self.direction: Direction = Direction.BOTH
@@ -420,7 +427,7 @@ Arguments:
         self.sock_opts = sock_opts
         self.configure()
     def __set_mngr_poll(self, value: bool) -> None:
-        "Sets mngr_poll."
+        "Sets mngr_poll"
         if not value:
             self.manager.unregister(self)
         elif self.endpoints:
@@ -436,10 +443,10 @@ Arguments:
         self._rcv_timeout = timeout
     @log_on_start("{__fn}() [identity={self.identity!r}]", logger=log_chn)
     def configure(self):
-        """Called by __init__() to configure the channel parameters."""
+        """Called by :meth:`__init__` to configure the channel parameters."""
     @log_on_start("{__fn}()", logger=log_chn)
     def drop_socket(self) -> None:
-        "Unconditionally drops the ZMQ socket."
+        "Unconditionally drops the ZMQ socket"
         try:
             if self.socket and not self.socket.closed:
                 self.socket.close(0)
@@ -483,8 +490,8 @@ Returns:
     wildcard specification is used.
 
 Raises:
-    :ChannelError: On attempt to a) bind another endpoint for PAIR socket, or b) bind
-    to already binded endpoint.
+    ChannelError: On attempt to a) bind another endpoint for PAIR socket, or b) bind
+        to already binded endpoint.
 """
         assert self.mode != SocketMode.CONNECT
         if (self.socket.socket_type == zmq.PAIR) and self.endpoints:
@@ -504,11 +511,11 @@ Raises:
         """Unbind from an address (undoes a call to `bind()`).
 
 Arguments:
-    :endpoint: Endpoint address or None to unbind from all binded endpoints.
-               Note: The address must be the same as the addresss returned by `bind()`.
+    endpoint: Endpoint address or None to unbind from all binded endpoints.
+              Note: The address must be the same as the addresss returned by :meth:`bind`.
 
 Raises:
-    :ChannelError: If channel is not binded to specified `endpoint`.
+    ChannelError: If channel is not binded to specified `endpoint`.
 """
         assert self.mode == SocketMode.BIND
         if endpoint and endpoint not in self.endpoints:
@@ -525,8 +532,8 @@ Raises:
         """Connect to a remote channel.
 
 Raises:
-    :ChannelError: On attempt to a) connect another endpoint for PAIR socket, or b) connect
-    to already connected endpoint.
+    ChannelError: On attempt to a) connect another endpoint for PAIR socket, or b) connect
+        to already connected endpoint.
 """
         assert self.mode != SocketMode.BIND
         if (self.socket.socket_type == zmq.PAIR) and self.endpoints:
@@ -545,11 +552,11 @@ Raises:
         """Disconnect from a remote socket (undoes a call to `connect()`).
 
 Arguments:
-    :endpoint: Endpoint address or None to disconnect from all connected endpoints.
-               Note: The address must be the same as the addresss returned by `connect()`.
+    endpoint: Endpoint address or None to disconnect from all connected endpoints.
+              Note: The address must be the same as the addresss returned by :meth:`connect`.
 
 Raises:
-    :ChannelError: If channel is not connected to specified `endpoint`.
+    ChannelError: If channel is not connected to specified `endpoint`.
 """
         assert self.mode == SocketMode.CONNECT
         if endpoint and endpoint not in self.endpoints:
@@ -593,7 +600,7 @@ Raises:
         """Permanently closes the channel by closing the ZMQ scoket.
 
 Arguments:
-    :linger: (int) Linger parameter for `zmq.socket.close()`
+    linger: (int) Linger parameter for `zmq.socket.close()`
 """
         if self.handler:
             self.handler.closing()
@@ -622,25 +629,22 @@ class MessageHandler:
     """Base class for message handlers.
 
 Attributes:
-    :chn: Handled I/O channel
-    :role: Peer role
-    :sessions: Dictionary of active sessions, key=routing_id
-    :protocol: Protocol used [default: Protocol]
-    :resume_timeout: Time limit in seconds for how long session could be suspended before
-        it's cancelled [default: RESUME_TIMEOUT].
-    :on_cancel_session: Callback executed before session is cancelled [default: None].
-
-Abstract methods:
-    :dispatch: Process message received from peer.
+    chn: Handled I/O channel
+    role: Peer role
+    sessions: Dictionary of active sessions, key=routing_id
+    protocol: Protocol used [default: :class:`Protocol`]
+    resume_timeout: Time limit in seconds for how long session could be suspended before
+        it's cancelled [default: :attr:`RESUME_TIMEOUT`].
+    on_cancel_session: Callback executed before session is cancelled [default: None].
 """
     def __init__(self, role: Origin, session_class: t.Type[Session] = Session):
         """Message handler initialization.
 
 Arguments:
-    :chn: Channel to be handled.
-    :role: The role that the handler performs.
-    :session_class: Class for session objects [default: BaseSession].
-    :resume_timeout: Time limit in seconds for how long session could be suspended before
+    chn: Channel to be handled.
+    role: The role that the handler performs.
+    session_class: Class for session objects [default: BaseSession].
+    resume_timeout: Time limit in seconds for how long session could be suspended before
         it's cancelled [default: 10].
 """
         self.chn: Channel = None
@@ -672,7 +676,7 @@ Arguments:
 If `session.endpoint` value is set, it also disconnects channel from this endpoint.
 
 Arguments:
-    :session: Session object to be discarded.
+    session: :class:`Session` object to be discarded.
 """
         assert session.routing_id in self.sessions
         session.discarded = True
@@ -681,22 +685,24 @@ Arguments:
         del self.sessions[session.routing_id]
     @log_on_start("{__fn}() [session_rid={session.routing_id!r}]", logger=log_msghnd)
     def suspend_session(self, session: Session) -> None:
-        """Called by send() when message must be deferred for later delivery.
+        """Called by :meth:`send` when message must be deferred for later delivery.
 
-Default implementation does nothing. Could be overriden to disable workers, etc.
+Note:
+    Default implementation does nothing. Could be overriden to disable workers, etc.
 """
     @log_on_start("{__fn}() [session_rid={session.routing_id!r}]", logger=log_msghnd)
     def resume_session(self, session: Session) -> None:
-        """Called by __resend() when deferred message is sent successfully.
+        """Called by :meth:`_retry_send` when deferred message is sent successfully.
 
-Default implementation does nothing. Could be overriden to enable workers, etc.
+Note:
+    Default implementation does nothing. Could be overriden to enable workers, etc.
 """
     @log_on_start("{__fn}() [session_rid={session.routing_id!r}]", logger=log_msghnd)
     def cancel_session(self, session: Session) -> None:
-        """Called by __resend() when attempts to send the message keep failing over specified
-time threashold.
+        """Called by :meth:`_retry_send` when attempts to send the message keep failing over
+specified time threashold.
 
-Calls `on_cancel_session()` callback if defined and then discards the session."""
+Calls :attr:`on_cancel_session` callback if defined and then discards the session."""
         if self.on_cancel_session:
             self.on_cancel_session(self, session)
         self.discard_session(session)
@@ -707,22 +713,25 @@ The base implementation separates the handler from channel to break circular ref
 """
         self.chn = None
     def handle_invalid_message(self, session: Session, exc: InvalidMessageError) -> None:
-        """Called by `receive()` when message parsing raises InvalidMessageError.
+        """Called by :meth:`receive` when message parsing raises `InvalidMessageError`.
 
-The base implementation does nothing.
+Note:
+    The base implementation does nothing.
 """
         log_msghnd.error("%s.handle_invalid_message(%s/%s)", self.__class__.__name__,
                   session.routing_id, exc)
     def handle_invalid_greeting(self, routing_id: RoutingID, exc: InvalidMessageError) -> None:
-        """Called by `receive()` when greeting message parsing raises InvalidMessageError.
+        """Called by :meth:`receive` when greeting message parsing raises `InvalidMessageError`.
 
-The base implementation does nothing.
+Note:
+    The base implementation does nothing.
 """
         log_msghnd.error("%s.handle_invalid_greeting(%s/%s)", self.__class__.__name__, routing_id, exc)
     def handle_dispatch_error(self, session: Session, msg: Message, exc: Exception) -> None:
-        """Called by `receive()` on Exception unhandled by `dispatch()`.
+        """Called by :meth:`receive` on Exception unhandled by :meth:`dispatch`.
 
-The base implementation does nothing.
+Note:
+    The base implementation does nothing.
 """
         log_msghnd.exception("%s.handle_dispatch_error(%s/%s)", self.__class__.__name__,
                       session.routing_id, exc)
@@ -732,8 +741,8 @@ The base implementation does nothing.
         """Connects to a remote peer and creates a session for this connection.
 
 Arguments:
-    :endpoint_address: Endpoint for connection.
-    :routing_id:       Channel routing ID (required for routed channels)
+    endpoint_address: Endpoint for connection.
+    routing_id:       Channel routing ID (required for routed channels)
 """
         if self.chn.routed:
             assert routing_id
@@ -771,22 +780,22 @@ Arguments:
         """Send message through channel.
 
 Arguments:
-    :msg: Message to be send.
-    :session: Session this message belongs to. Required for routed channels [default: None].
-    :defer: Whether message should be deferred when send is unsuccessful [default: True].
+    msg: Message to be send.
+    session: Session this message belongs to. Required for routed channels [default: None].
+    defer: Whether message should be deferred when send is unsuccessful [default: True].
         Ignored if session is not provided.
-    :cancel_on_error: Whether session should be cancelled when send is unsuccessful and
+    cancel_on_error: Whether session should be cancelled when send is unsuccessful and
         cannot be deferred [default: False]. Ignored if session is not provided.
 
 When `defer` is True and send fails with EAGAIN, the message is queued into session and
 scheduled for retry. If send fails with EHOSTUNREACH, the session is cancelled via
-:meth:`cancel_session()`.
+:meth:`cancel_session`.
 
 Returns:
     True when message was successfully sent or deferred. False if session was cancelled.
 
 Raises:
-    :ZMQError: If send fails and `defer` is False, or: when `defer` is True and
+    ZMQError: If send fails and `defer` is False, or: when `defer` is True and
         `cancel_on_error` is False and error is not EAGAIN/EHOSTUNREACH.
 """
         result = False
@@ -814,7 +823,7 @@ Raises:
                 if err.errno == EAGAIN and defer:
                     if __debug__: log_msghnd.debug('Send failed, suspending session')
                     session.send_later(zmsg)
-                    self.chn.manager.defer(self.__retry_send, session)
+                    self.chn.manager.defer(self._retry_send, session)
                     self.suspend_session(session)
                 elif err.errno == EHOSTUNREACH and defer:
                     log_msghnd.warning('Send failed, host unreachable')
@@ -827,10 +836,10 @@ Raises:
             else:
                 result = True
         return result
-    def __retry_send(self, session: Session = None) -> None:
+    def _retry_send(self, session: Session = None) -> None:
         """Resend previously deferred messages through channel. If send fails with EAGAIN,
 it's scheduled for another try, or session is cancelled if time from last failed attempt
-exceeds `resume_timeout`.
+exceeds :attr:`resume_timeout`.
 
 Session is cancelled if send fails with other error than EAGAIN.
 
@@ -863,7 +872,7 @@ subsequent send fails.
                     if __debug__: log_msghnd.debug('Resuming session')
                     self.resume_session(session)
         if session.messages and not cancel:
-            self.chn.manager.defer(self.__retry_send, session)
+            self.chn.manager.defer(self._retry_send, session)
             if not session.is_suspended():
                 if __debug__: log_msghnd.debug('Send retry failed, suspending session')
                 session.pending_since = monotonic()
@@ -874,11 +883,12 @@ subsequent send fails.
     def dispatch(self, session: Session, msg: Message) -> None:
         """Process message received from peer.
 
-This method MUST be overridden in child classes.
+Important:
+    Abstract method, MUST be overridden in child classes.
 
 Arguments:
-    :session: Session instance.
-    :msg:     Received message.
+    session: Session instance.
+    msg:     Received message.
 """
         raise NotImplementedError
     def is_active(self) -> bool:

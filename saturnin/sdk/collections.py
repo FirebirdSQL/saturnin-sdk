@@ -61,8 +61,8 @@ class BaseObjectCollection:
         """Returns generator that yields items for which `expr` is evaluated as True.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Example:
     .. code-block:: python
@@ -76,8 +76,8 @@ Example:
         """Returns generator that yields items for which `expr` is evaluated as False.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Example:
     .. code-block:: python
@@ -91,9 +91,9 @@ Example:
         """Returns first item for which `expr` is evaluated as True, or default.
 
 Arguments:
-    :expr:    Boolean expression, a callable accepting one parameter or expression
-              as string referencing list item as `item`.
-    :default: Default value returned when Items is not found.
+    expr:    Boolean expression, a callable accepting one parameter or expression
+             as string referencing list item as `item`.
+    default: Default value returned when Items is not found.
 
 Example:
     .. code-block:: python
@@ -108,8 +108,8 @@ Example:
         """Returns True if there is any item for which `expr` is evaluated as True.
 
 Arguments:
-    :expr:    Boolean expression, a callable accepting one parameter or expression
-              as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Examples:
     .. code-block:: python
@@ -124,7 +124,7 @@ Examples:
         """Returns generator that yields data produced by expression(s) evaluated on list items.
 
 Arguments:
-    :args: Parameter(s) could be one from:
+    args: Parameter(s) could be one from:
 
         - A callable accepting one parameter and returning data for output
         - One or more expressions as string referencing item as `item`.
@@ -152,8 +152,8 @@ Examples:
         """Return number of items for which `expr` is evaluated as True.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Example:
     .. code-block:: python
@@ -166,7 +166,7 @@ Example:
         """Return True if `expr` is evaluated as True for all list elements.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
+    expr: Boolean expression, a callable accepting one parameter or expression
            as string referencing list item as `item`.
 
 Example:
@@ -184,8 +184,8 @@ Example:
         """Return True if `expr` is evaluated as True for any list element.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Example:
     .. code-block:: python
@@ -206,13 +206,13 @@ class ObjectList(list, BaseObjectCollection):
                  key_expr: str = None, frozen: bool = False):
         """
 Arguments:
-    :items:     Sequence to initialize the collection.
-    :type_spec: Only instances of these class(es) would be allowed in collection.
-    :key_expr:  Key expression. Must contain item referrence as `item`, for example
-                `item.attribute_name`. If **all** classes specified in `type_spec` are
-                descendants of :class:`Distinct`, the default value is `item.get_key()`,
-                otherwise the default is None.
-    :frozen:    Create frozen list.
+    items:     Sequence to initialize the collection.
+    type_spec: Only instances of these class(es) would be allowed in collection.
+    key_expr:  Key expression. Must contain item referrence as `item`, for example
+               `item.attribute_name`. If **all** classes specified in `type_spec` are
+               descendants of :class:`~saturnin.sdk.types.Distinct`, the default value is
+               `item.get_key()`, otherwise the default is None.
+    frozen:    Create frozen list.
 
 Raises:
     ValueError: When initialization sequence contains invalid instance.
@@ -303,11 +303,11 @@ Raises:
         """Sort items in-place, optionaly using attribute values as key or key expression.
 
 Arguments:
-    :attrs: List of attribute names.
-    :expr: Key expression, a callable accepting one parameter or expression
+    attrs: List of attribute names.
+    expr: Key expression, a callable accepting one parameter or expression
            as string referencing list item as `item`.
 
-    .. important::
+    important:
 
         Only one parameter (`attrs` or `expr`) could be specified.
         If none is present then uses default list sorting rule.
@@ -355,8 +355,8 @@ It's not possible to `add`, `delete` or `change` items in frozen list, but `sort
 as True and second for `expr` evaluated as False.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Example:
     .. code-block:: python
@@ -369,8 +369,8 @@ Example:
         """Move items for which `expr` is evaluated as True into new ObjectLists.
 
 Arguments:
-    :expr: Boolean expression, a callable accepting one parameter or expression
-           as string referencing list item as `item`.
+    expr: Boolean expression, a callable accepting one parameter or expression
+          as string referencing list item as `item`.
 
 Raises:
     ImmutableError: When list is frozen
@@ -401,8 +401,8 @@ Uses very fast method to look up value of default key expression in `frozen` lis
 otherwise it uses slower list traversal.
 
 Arguments:
-    :key:     Searched value.
-    :default: Default value.
+    key:     Searched value.
+    default: Default value.
 
 Raises:
     TypeError: If key expression is not defined.
@@ -433,7 +433,7 @@ Examples:
 class Registry(BaseObjectCollection, t.Mapping[t.Any, Distinct]):
     """Mapping container for distinct objects.
 
-All registered objects must descend from :class:`Distinct`.
+All registered objects must descend from :class:`~saturnin.sdk.types.Distinct`.
 
 To store items into registry with existence check, use:
     - R.store(item)
@@ -462,7 +462,8 @@ represens a key value for instances of stored type.
         """Registry initialization.
 
 Arguments:
-    :initialdata: Either Distinct instance, or sequence or mapping of Distinct instances.
+    initialdata: Either :class:`~saturnin.sdk.types.Distinct` instance, or sequence or
+        mapping of :class:`~saturnin.sdk.types.Distinct` instances.
 """
         self._reg: t.Dict[t.Any, Distinct] = {}
         if initialdata:
@@ -494,7 +495,7 @@ Arguments:
         """Register an item.
 
 Raises:
-    :ValueError: When item is already registered.
+    ValueError: When item is already registered.
 """
         assert isinstance(item, Distinct), "Item is not of type '%s'" % Distinct.__name__
         key = item.get_key()
@@ -508,7 +509,8 @@ Raises:
         """Update items in the registry.
 
 Arguments:
-    :_from: Either Distinct instance, or sequence or mapping of Distinct instances.
+    _from: Either :class:`~saturnin.sdk.types.Distinct` instance, or sequence or
+        mapping of :class:`~saturnin.sdk.types.Distinct` instances.
 """
         if isinstance(_from, Distinct):
             self[_from] = _from
@@ -519,7 +521,7 @@ Arguments:
         """Store one or more items to the registry.
 
 Arguments:
-    :_from: Either Distinct instance, or sequence or mapping of Distinct instances.
+    _from: Either Distinct instance, or sequence or mapping of Distinct instances.
 """
         if isinstance(_from, Distinct):
             self.store(_from)

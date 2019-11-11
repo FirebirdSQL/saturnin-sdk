@@ -45,8 +45,10 @@ from saturnin.sdk.protocol.fbdp import PipeSocket, BaseFBDPHandler, PipeClientHa
 # Logger
 
 log = logging.getLogger(__name__)
+"Data pipe logger"
 
 END_OF_DATA = object()
+"EOF marker"
 
 # Enums
 
@@ -61,10 +63,15 @@ class PipeState(Enum):
 # Types
 
 TOnPipeClosed = t.Callable[['DataPipe', Session, Message], None]
+"PipeClosed event handler"
 TOnAcceptClient = t.Callable[['DataPipe', Session, MIMEOption], int]
+"AcceptClient event handler"
 TOnServerReady = t.Callable[['DataPipe', Session, int], int]
+"ServerReady event handler"
 TOnAcceptData = t.Callable[['DataPipe', Session, bytes], int]
+"cceptData event handler"
 TOnProduceData = t.Callable[['DataPipe', Session], t.Any]
+"ProduceData event handler"
 
 # Classes
 
@@ -72,22 +79,23 @@ class DataPipe:
     """Data pipe descriptor.
 
 Attributes:
-    :state:       Pipe state
-    :pipe_id:     Pipe identification
-    :mode:        Pipe mode
-    :address:     Pipe ZMQ address
-    :socket:      Pipe socket
-    :data_format: Data format
-    :mime_type:   MIME type
-    :mime_params: MIME type parameters
-    :chn:         Pipe channel
-
-Abstract methods:
-    :on_pipe_closed:   General callback called when pipe is closed.
-    :on_accept_client: SERVER callback. Validates and processes client connection request.
-    :on_server_ready:  CLIENT callback executed when non-zero READY is received from server.
-    :on_accept_data:   CONSUMER callback that process DATA from producer.
-    :on_produce_data:  PRODUCER callback that returns DATA for consumer.
+    state (:class:`PipeState`): Pipe state
+    pipe_id (str): Pipe identification
+    mode (:class:`~saturnin.sdk.types.SocketMode`): Pipe mode
+    address (:class:`~saturnin.sdk.types.ZMQAddress`): Pipe ZMQ address
+    socket (:class:`~saturnin.sdk.types.PipeSocket`): Pipe socket
+    data_format (str): Data format
+    mime_type (str):   MIME type
+    mime_params (dict): MIME type parameters
+    chn (:class:`~saturnin.sdk.base.DealerChannel`): Pipe channel
+    hnd (:class:`~saturnin.sdk.protocol.fbdp.BaseFBDPHandler`): FBDP message handler
+    on_pipe_closed (:data:`TOnPipeClosed`): General callback called when pipe is closed.
+    on_accept_client (:data:`TOnAcceptClient`): SERVER callback. Validates and processes
+        client connection request.
+    on_server_ready (:data:`TOnServerReady`): CLIENT callback executed when non-zero READY
+        is received from server.
+    on_accept_data (:data:`TOnAcceptData`): CONSUMER callback that process DATA from producer.
+    on_produce_data (:data:`TOnProduceData`): PRODUCER callback that returns DATA for consumer.
 """
     def __init__(self, on_close: TOnPipeClosed = None):
         self.state = PipeState.UNKNOWN
@@ -174,6 +182,7 @@ Abstract methods:
         "Assign transmission channel for data pipe."
         self.chn = channel
     def set_mode(self, mode: SocketMode) -> None:
+        "Set data pipe mode"
         assert self.chn is not None
         self.mode = mode
         if mode == SocketMode.BIND:

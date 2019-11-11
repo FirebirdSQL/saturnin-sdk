@@ -33,6 +33,9 @@
 # Contributor(s): Pavel Císař (initial code)
 #                 ______________________________________.
 
+"""Saturnin SDK - Helpers for debugging
+"""
+
 import typing as t
 import inspect
 import logging
@@ -66,8 +69,8 @@ Example:
     `{'mylist': len}` will define `len_mylist` containing length of `myslist` (list) argument.
 
 Attributes:
-    :message: Debug message (with curly-brace formatting)
-    :post_process: A disctionary with description of function/method attribute post-processing
+    message: Debug message (with curly-brace formatting)
+    post_process: A disctionary with description of function/method attribute post-processing
         [default: None]
 """
     def __init__(self, message: str, logger: logging.Logger=None, post_process: t.Dict=None):
@@ -78,8 +81,10 @@ Attributes:
         "Execute callables defined in `post_process`"
         if self.post_process:
             for attr, fn in self.post_process.items():
+                #print("Attr:", attr, " Value:", adict.get(attr))
                 if attr in adict:
-                    adict['%s_%s' % (fn.__name__, attr)] = fn(adict[attr])
+                    name = fn.__name__ if fn.__name__ != '<lambda>' else 'lambda'
+                    adict['%s_%s' % (name, attr)] = fn(adict[attr])
     def before_execution(self, fn, args, kwargs):
         "Executed before decorated callable"
         pass
@@ -98,7 +103,7 @@ decorated callable."""
         signature = inspect.signature(fn)
         result = signature.bind_partial(*args, **kwargs).arguments
         for name, value in signature.parameters.items():
-            if value.default != inspect._empty and name not in kwargs:
+            if value.default != inspect._empty and name not in result:
                 result[name] = value.default
         if 'self' in result:
             result['__fn'] = '%s.%s' % (result['self'].__class__.__name__, fn.__name__)
@@ -119,16 +124,18 @@ decorated callable."""
 class log_on_start(DebugLoggingDecorator):
     """Decorator that logs debug message before decorated callable is executed."""
     def before_execution(self, fn, args, kwargs):
+        "Executed before decorated callable"
         logger = self._get_logger(fn)
         msg_params = self.msg_params(fn, args, kwargs)
         self.do_post_process(msg_params)
+        #print(msg_params)
         logger.debug(BraceMessage(self.message, [], msg_params))
 
 class log_on_end(DebugLoggingDecorator):
     """Decorator that logs debug message after decorated callable is executed.
 
 Attributes:
-    :result_fmt_var: Name of message format variable with value returned by decorated
+    result_fmt_var: Name of message format variable with value returned by decorated
         callable [default: 'result']
 """
     def __init__(self, message, logger=None, post_process=None,
@@ -136,6 +143,7 @@ Attributes:
         super().__init__(message, logger=logger, post_process=post_process)
         self.result_fmt_var = result_fmt_var
     def after_execution(self, fn, result, args, kwargs):
+        "Executed after decorated callable"
         logger = self._get_logger(fn)
         msg_params = self.msg_params(fn, args, kwargs)
         msg_params[self.result_fmt_var] = result

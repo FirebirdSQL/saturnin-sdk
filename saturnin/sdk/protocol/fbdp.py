@@ -42,6 +42,7 @@ from zmq import ZMQError
 from firebird.butler import fbdp_pb2 as fbdp_proto, fbsd_pb2 as fbsd_proto
 from ..types import Enum, Flag, ZMQAddress, Origin, Direction, PipeSocket, \
      InvalidMessageError, StopError
+from ..debug import logging, log_on_start, log_on_end
 from .. import base
 from ..base import msg_bytes
 
@@ -49,21 +50,33 @@ from ..base import msg_bytes
 
 # OID: iso.org.dod.internet.private.enterprise.firebird.butler.protocol.fbdp
 PROTOCOL_OID: str = '1.3.6.1.4.1.53446.1.5.2'
+"FBDP protocol OID (`firebird.butler.protocol.fbdp`)"
 PROTOCOL_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, PROTOCOL_OID)
+"FBDP protocol UID (:func:`~uuid.uuid5` - NAMESPACE_OID)"
 PROTOCOL_REVISION: int = 1
+"FBDP protocol revision number"
 
 HEADER_FMT_FULL : str = '!4sBBH'
+"FBDP protocol control frame :mod:`struct` format"
 HEADER_FMT: str = '!4xBBH'
+"FBDP protocol control frame :mod:`struct` format without FOURCC"
 FOURCC: bytes = b'FBDP'
+"FBDP protocol identification (FOURCC)"
 VERSION_MASK: int = 7
+"FBDP protocol version mask"
 
 DATA_BATCH_SIZE: int = 50
+"Default data batch size"
 READY_PROBE_INTERVAL: int = 10
+"Default READY-probe interval (seconds)"
 READY_PROBE_COUNT: int = 10
+"Default READY-probe count"
 
 # Logger
 
 log: logging.Logger = logging.getLogger(__name__)
+"FBDP logger"
+#log.setLevel(logging.DEBUG)
 
 # Enums
 
@@ -106,11 +119,11 @@ class Message(base.Message):
     """FBDP Message.
 
 Attributes:
-    :message_type: Type of message
-    :type_data:    Data associated with message (int)
-    :flags:        Message flags
-    :data:         List of message frames
-    :data_frame:   Data frame associated with message type (or None)
+    message_type: Type of message
+    type_data:    Data associated with message (int)
+    flags:        Message flags
+    data:         List of message frames
+    data_frame:   Data frame associated with message type (or None)
 """
     def __init__(self):
         super().__init__()
@@ -124,7 +137,7 @@ Attributes:
 attribute contains a copy of all message frames.
 
 Arguments:
-    :frames: Sequence of frames that should be deserialized.
+    frames: Sequence of frames that should be deserialized.
 """
         super().from_zmsg(frames)
         control_byte, flags, self.type_data = unpack(HEADER_FMT, self.data.pop(0))
@@ -182,10 +195,10 @@ Arguments:
         """Verifies that sequence of ZMQ zmsg frames is a valid FBDP message.
 
 Arguments:
-    :zmsg: Sequence of ZMQ message frames for validation.
+    zmsg: Sequence of ZMQ message frames for validation.
 
 Raises:
-    :InvalidMessageError: When formal error is detected.
+    InvalidMessageError: When formal error is detected.
 """
         if not zmsg:
             raise InvalidMessageError("Empty message")
@@ -284,12 +297,12 @@ class Session(base.Session):
     """FBDP session. Contains information about Data Pipe.
 
 Attributes:
-    :batch_size: (int) Desired DATA batch size [default: DATA_BATCH_SIZE].
-    :ready: (int) DATA batch size received in last READY message.
-    :transmit: (int) Number of DATA messages that remain to be transmitted since last READY message.
-    :data_pipe: (str) Data Pipe Identification.
-    :pipe_stream: (PipeSocket) Data Pipe stream Identification.
-    :data_format: (str) Specification of format for user data transmitted in DATA messages.
+    batch_size (int): Desired DATA batch size [default: DATA_BATCH_SIZE].
+    ready (int): DATA batch size received in last READY message.
+    transmit (int): Number of DATA messages that remain to be transmitted since last READY message.
+    data_pipe (str): Data Pipe Identification.
+    pipe_stream (:class:`~saturnin.sdk.types.PipeSocket`): Data Pipe stream Identification.
+    data_format (str): Specification of format for user data transmitted in DATA messages.
 """
     def __init__(self, routing_id: bytes):
         super().__init__(routing_id)
@@ -304,9 +317,9 @@ class ServerSession(Session):
     """Extended FBDP session for pipe Servers. Adds information about READY probes.
 
 Attributes:
-    :probe_countdown: (int) Number of remaining READY probes before session is closed
+    probe_countdown (int): Number of remaining READY probes before session is closed
         [default: READY_PROBE_COUNT].
-    :zero_ready_at: (float) Value is either None or monotonic() time when last READY(0)
+    zero_ready_at (float): Value is either None or monotonic() time when last READY(0)
         was received.
 """
     def __init__(self, routing_id: bytes):
@@ -319,17 +332,15 @@ class Protocol(base.Protocol):
 
 The main purpose of protocol class is to validate ZMQ messages and create FBDP messages.
 
-Class attributes:
-   :OID:        string with protocol OID (dot notation).
-   :UID:        UUID instance that identifies the protocol.
-   :REVISION:   Protocol revision
-
 Attributes:
-    :message_factory: Callable that returns FBDP Message instance.
+    message_factory (:data:`~saturnin.sdk.base.TMessageFactory`): Callable that returns FBDP Message instance.
 """
     OID: str = PROTOCOL_OID
+    "FBDP protocol OID (dot notation)"
     UID: uuid.UUID = PROTOCOL_UID
+    "FBDP protocol UID"
     REVISION: int = PROTOCOL_REVISION
+    "FBDP protocol revision number"
     def __init__(self, message_factory: base.TMessageFactory = Message):
         super().__init__(message_factory)
     @classmethod
@@ -341,9 +352,9 @@ Attributes:
         """Create new :class:`Message` child class instance for particular FBDP message type.
 
 Arguments:
-    :message_type: Type of message to be created
-    :type_data:    Message control data
-    :flags:        Flags
+    message_type: Type of message to be created
+    type_data:    Message control data
+    flags:        Flags
 
 Returns:
     New :class:`Message` instance.
@@ -373,14 +384,14 @@ Returns:
         """Parse ZMQ message into protocol message.
 
 Arguments:
-    :zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
+    zmsg: Sequence of bytes or :class:`zmq.Frame` instances that must be a valid protocol message.
 
 Returns:
     New protocol message instance with parsed ZMQ message. The BaseProtocol implementation
     returns BaseMessage instance.
 
 Raises:
-    :InvalidMessageError: If message is not a valid protocol message.
+    InvalidMessageError: If message is not a valid protocol message.
 """
         msg = self.message_factory()
         msg.from_zmsg(zmsg)
@@ -389,15 +400,15 @@ Raises:
         """Validate that ZMQ message is a valid FBSP message.
 
 Arguments:
-    :zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
-    :origin: Origin of received message in protocol context.
-    :kwargs: Additional keyword-only arguments.
+    zmsg:   Sequence of bytes or :class:`zmq.Frame` instances.
+    origin: Origin of received message in protocol context.
+    kwargs: Additional keyword-only arguments.
 
-Supported kwargs:
-    :greeting: (bool) If True, the message is validated as greeting message from origin.
+keyword args:
+    greeting (bool): If True, the message is validated as greeting message from origin.
 
 Raises:
-    :InvalidMessageError: If message is not a valid FBSP message.
+    InvalidMessageError: If message is not a valid FBDP message.
 """
         Message.validate_zmsg(zmsg)
         if kwargs.get('greeting', False):
@@ -414,49 +425,54 @@ _FBDP_INSTANCE = Protocol()
 # Callback events
 
 TPipeHandler = t.TypeVar('TPipeHandler', bound='BaseFBDPHandler')
+"Data pipe message handler"
 TPipeClientHandler = t.TypeVar('TPipeClientHandler', bound='PipeClientHandler')
+"Data pipe `Client` message handler"
 TPipeServerHandler = t.TypeVar('TPipeServerHandler', bound='PipeServerHandler')
+"Data pipe `Server` message handler"
 TOnPipeClosed = t.Callable[[TPipeHandler, Session, Message], None]
+"PipeClosed event handler"
 TOnBatchStart = t.Callable[[TPipeHandler, Session], None]
+"BatchStart event handler"
 TOnDataConfirmed = t.Callable[[TPipeHandler, Session], None]
+"DataConfirmed event handler"
 TOnAcceptData = t.Callable[[TPipeHandler, Session, t.Any], int]
+"AcceptData event handler"
 TOnAcceptClient = t.Callable[[TPipeServerHandler, Session, str, PipeSocket, str], int]
+"AcceptClient event handler"
 TOnBatchEnd = t.Callable[[TPipeServerHandler, Session], None]
+"BatchEnd event handler"
 TOnServerReady = t.Callable[[TPipeClientHandler, Session, int], int]
+"ServerReady event handler"
 
 class BaseFBDPHandler(base.MessageHandler):
     """Base class for FBDP message handlers.
 
-Uses :attr:`handlers` dictionary to route received messages to appropriate handlers.
+Uses :attr:`~saturnin.sdk.base.MessageHandler.handlers` dictionary to route received
+messages to appropriate handlers.
 
-.. important::
-
+Important:
    Protocol uses message factory that returns singleton message instance owned by handler.
 
-Attributes:
-    :batch_size: Default DATA batch size for connections [default: DATA_BATCH_SIZE].
-    :on_pipe_closed: Callback executed when CLOSE message is received.
-
 Messages handled:
-    :unknown: Discards session, sends CLOSE(INVALID_MESSAGE) if pipe is open.
-    :OPEN:    Raises NotImplementedError
-    :READY:   Raises NotImplementedError
-    :NOOP:    Sends ACK_REPLY back if required, otherwise it will do nothing.
-    :DATA:    Raises NotImplementedError
-    :CLOSE:   Raises NotImplementedError
+    :unknown: Discards session, sends `CLOSE(INVALID_MESSAGE)` if pipe is open.
+    :OPEN:    Raises :class:`NotImplementedError`
+    :READY:   Raises :class:`NotImplementedError`
+    :NOOP:    Sends `ACK_REPLY` back if required, otherwise it will do nothing.
+    :DATA:    Raises :class:`NotImplementedError`
+    :CLOSE:   Raises :class:`NotImplementedError`
 
-Abstract methods:
-    :handle_open:    Handle OPEN message.
-    :handle_ready:   Handle READY message.
-    :handle_data:    Handle DATA message.
-    :handle_close:   Handle CLOSE message.
+Attributes:
+    batch_size: Default DATA batch size for connections [default: :data:`DATA_BATCH_SIZE`].
+    on_pipe_closed: Callback executed when `CLOSE` message is received.
+    handlers: Dictionary that maps message types to handler methods
 """
     def __init__(self, role: Origin, session_class: t.Type[Session], batch_size: int = None):
         """Message handler initialization.
 
 Arguments:
-    :role: The role that the handler performs.
-    :batch_size: Optional default DATA batch size for connections.
+    role: The role that the handler performs.
+    batch_size: Optional default DATA batch size for connections.
 """
         super().__init__(role, session_class)
         self.__msg = Message()
@@ -477,43 +493,63 @@ Arguments:
         session.batch_size = self.batch_size
         return session
     def message_factory(self) -> Message:
-        "Returns private Message instance. The instance is cleared before returning."
+        "Returns private :class:`Message` instance. The instance is cleared before returning."
         self.__msg.clear()
         return self.__msg
+    @log_on_start("{__fn}()", logger=log)
     def handle_unknown(self, session: Session, msg: Message) -> None:
-        """Default message handler. Called by `dispatch` when no appropriate message handler
-is found in :attr:`handlers` dictionary.
+        """Default message handler. Called by :meth:`dispatch` when no appropriate message
+handler is found in :attr:`handlers` dictionary.
 """
-        if __debug__: log.debug("%s.handle_unknown", self.__class__.__name__)
+        #if __debug__: log.debug("%s.handle_unknown", self.__class__.__name__)
         if session.data_pipe:
             self.send_close(session, ErrorCode.INVALID_MESSAGE)
         self.discard_session(session)
     def handle_open(self, session: Session, msg: Message) -> None:
-        "Handle OPEN message."
+        """Handle `OPEN` message.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
     def handle_ready(self, session: Session, msg: Message) -> None:
-        "Handle READY message."
+        """Handle `READY` message.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
+    @log_on_start("{__fn}()", logger=log)
     def handle_noop(self, session: Session, msg: Message) -> None:
-        "Handle NOOP message. Sends ACK_REPLY back if required, otherwise it will do nothing."
-        if __debug__: log.debug("%s.handle_noop", self.__class__.__name__)
+        "Handle `NOOP` message. Sends `ACK_REPLY` back if required, otherwise it will do nothing."
+        #if __debug__: log.debug("%s.handle_noop", self.__class__.__name__)
         if msg.has_ack_req():
             self.send(self.protocol.create_ack_reply(msg), session)
     def handle_data(self, session: Session, msg: Message) -> None:
-        "Handle DATA message."
+        """Handle `DATA` message.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
     def handle_close(self, session: Session, msg: Message) -> None:
-        "Handle CLOSE message."
+        """Handle `CLOSE` message.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
+    @log_on_start("{__fn}() [msg={msg.message_type.name}]",
+                  logger=log)
     def dispatch(self, session: Session, msg: Message) -> None:
         """Process message received from peer.
 
 Uses :attr:`handlers` dictionary to find appropriate handler for the messsage.
-If no appropriate handler is located, calls :meth:`on_unknown()`.
+If no appropriate handler is located, calls :meth:`handle_unknown`.
 
 Arguments:
-    :session: Session attached to peer.
-    :msg:     FBDP message received from client.
+    session: Session attached to peer.
+    msg:     FBDP message received from client.
 """
         #if __debug__: log.debug("%s.dispatch", self.__class__.__name__)
         handler = self.handlers.get(msg.message_type)
@@ -521,20 +557,25 @@ Arguments:
             handler(session, msg)
         else:
             self.handle_unknown(session, msg)
+    @log_on_start("{__fn}() [batch_size={batch_size}]",
+                  logger=log)
     def send_ready(self, session: Session, batch_size: int, defer: bool = True) -> None:
-        """Send READY message to client"""
-        if __debug__:
-            log.debug("%s.send_ready(%s, %s)", self.__class__.__name__,
-                      session.routing_id, batch_size)
+        """Send `READY` message to client
+"""
+        #if __debug__:
+            #log.debug("%s.send_ready(%s, %s)", self.__class__.__name__,
+                      #session.routing_id, batch_size)
         msg = self.protocol.create_message_for(MsgType.READY, batch_size)
         if not self.send(msg, session, defer):
             raise StopError("Broken pipe")
+    @log_on_start("{__fn}() [error_code={error_code}]",
+                  logger=log)
     def send_close(self, session: Session, error_code: ErrorCode,
                    exc: Exception = None) -> None:
-        "Sends CLOSE message to peer and discards the session."
-        if __debug__:
-            log.debug("%s.send_close(%s, %s)", self.__class__.__name__,
-                      session.routing_id, error_code)
+        "Sends `CLOSE` message to peer and discards the session."
+        #if __debug__:
+            #log.debug("%s.send_close(%s, %s)", self.__class__.__name__,
+                      #session.routing_id, error_code)
         msg = self.protocol.create_message_for(MsgType.CLOSE, error_code)
         if exc:
             msg.note_exception(exc)
@@ -554,9 +595,10 @@ Arguments:
         writer = log.info if msg.type_data == ErrorCode.OK else log.error
         writer("Pipe %s:CLOSE(%s) [%s:%s]", direction.name, msg.type_data.name,
                session.pipe_stream.name, session.data_pipe)
+    @log_on_start("{__fn}()", logger=log)
     def close(self):
         "Close the data pipe connection."
-        if __debug__: log.debug("%s.close()", self.__class__.__name__)
+        #if __debug__: log.debug("%s.close()", self.__class__.__name__)
         session: Session = self.get_session()
         if session is not None:
             if session.data_pipe:
@@ -567,20 +609,6 @@ Arguments:
 class PipeServerHandler(BaseFBDPHandler):
     """Base class for Data Pipe Servers.
 
-Attributes:
-    :ready_probe_interval: (int) READY probe interval [default: READY_PROBE_INTERVAL]
-    :ready_probe_count: (int) Number of READY probes before session is closed
-        [default: READY_PROBE_COUNT]
-    :confirm_processing: (bool) Whether ACK_REPLY message for DATA/ACK_REQ should be sent
-        before (False) or after (True) call to `on_accept_data()` callback [default: False].
-    :on_accept_client: PRODUCER callback executed when pipe is connected
-    :on_accept_data: CONSUMER callback executed when DATA message is received for PIPE_INPUT.
-    :on_batch_start: PRODUCER callback executed when non-zero READY is received for
-        PIPE_OUPUT/PIPE_MONITOR.
-    :on_batch_end: CONSUMER callback executed when all DATA messages in batch are
-        transmitted.
-    :on_data_confirmed: PRODUCER callback executed when ACK_REPLY on sent DATA is received.
-
 Messages handled:
     :OPEN:  Calls `on_accept_client()`. Sends READY on success, CLOSE on error.
     :READY: Non-zero READY calls `on_batch_start()` for PIPE_OUPUT & PIPE_MONITOR.
@@ -590,6 +618,22 @@ Messages handled:
         otherwise sends CLOSE(PROTOCOL_VIOLATION).
     :CLOSE: Calls `on_pipe_closed()` and discards the session.
 
+Attributes:
+    ready_probe_interval (int): READY probe interval [default: :data:`READY_PROBE_INTERVAL`]
+    ready_probe_count (int): Number of READY probes before session is closed
+        [default: :data:`READY_PROBE_COUNT`]
+    confirm_processing (bool): Whether ACK_REPLY message for DATA/ACK_REQ should be sent
+        before (False) or after (True) call to `on_accept_data()` callback [default: False].
+    on_accept_client (:class:`TOnAcceptClient`): PRODUCER callback executed when pipe is
+        connected
+    on_accept_data (:class:`TOnAcceptData`): CONSUMER callback executed when DATA message
+        is received for PIPE_INPUT.
+    on_batch_start (:class:`TOnBatchStart`): PRODUCER callback executed when non-zero READY
+        is received for PIPE_OUPUT/PIPE_MONITOR.
+    on_batch_end (:class:`TOnBatchEnd`): CONSUMER callback executed when all DATA messages
+        in batch are transmitted.
+    on_data_confirmed (:class:`TOnDataConfirmed`): PRODUCER callback executed when
+        ACK_REPLY on sent DATA is received.
 """
     def __init__(self, batch_size: int = None):
         super().__init__(Origin.SERVICE, ServerSession, batch_size)
@@ -621,19 +665,20 @@ Messages handled:
                     pipe_stream.name, data_pipe, data_format)
         return 0
     def __on_accept_data(self, handler: TPipeServerHandler, session: Session, data: bytes) -> int:
-        "Default CONSUMER callback that logs warning and returns ErrorCode.OK."
+        "Default CONSUMER callback that logs warning and returns `ErrorCode.OK`."
         log.warning("Callback 'on_accept_data' not defined, pipe %s:%s [%s]",
                     session.pipe_stream.name, session.data_pipe, session.data_format)
         return ErrorCode.OK
     def __on_batch_start(self, handler: TPipeServerHandler, session: Session) -> None:
-        "Default PRODUCER callback that logs error and send CLOSE(INTERNAL_ERROR)."
+        "Default PRODUCER callback that logs error and send `CLOSE(INTERNAL_ERROR)`."
         log.error("Callback 'on_batch_start' not defined, pipe %s:%s [%s]",
                     session.pipe_stream.name, session.data_pipe, session.data_format)
         self.send_close(session, ErrorCode.INTERNAL_ERROR)
+    @log_on_start("{__fn}()", logger=log)
     def __on_batch_end(self, handler: TPipeServerHandler, session: Session) -> None:
-        "Default CONSUMER callback that always sends READY(batch_size)."
-        if __debug__:
-            log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
+        "Default CONSUMER callback that always sends `READY(batch_size)`."
+        #if __debug__:
+            #log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
         try:
             self.send_ready(session, self.batch_size)
         except Exception as exc:
@@ -641,14 +686,16 @@ Messages handled:
             log.error("Pipe READY send failed [SRV:%s:%s]", session.pipe_stream,
                       session.data_pipe, exc_info=exc)
             self.cancel_session(session)
+    @log_on_start("{__fn}()", logger=log)
     def __on_data_confirmed(self, handler: TPipeServerHandler, session: Session) -> None:
         "Default PRODUCER callback that does nothing."
-        if __debug__:
-            log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
+        #if __debug__:
+            #log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
+    @log_on_start("{__fn}()", logger=log)
     def handle_open(self, session: Session, msg: Message) -> None:
-        "Handle OPEN message."
-        if __debug__:
-            log.debug("%s.handle_open(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `OPEN` message."
+        #if __debug__:
+            #log.debug("%s.handle_open(%s)", self.__class__.__name__, session.routing_id)
         error_code = None
         exc = None
         ready = session.batch_size
@@ -672,11 +719,12 @@ Messages handled:
             log.exception("Unhandled exception in on_accept_client() callback.")
         if error_code:
             self.send_close(session, error_code, exc)
+    @log_on_start("{__fn}() [ready={msg.type_data}]", logger=log)
     def handle_ready(self, session: Session, msg: Message) -> None:
-        "Handle READY message."
-        if __debug__:
-            log.debug("%s.handle_ready(%s) [%s]", self.__class__.__name__,
-                      session.routing_id, msg.type_data)
+        "Handle `READY` message."
+        #if __debug__:
+            #log.debug("%s.handle_ready(%s) [%s]", self.__class__.__name__,
+                      #session.routing_id, msg.type_data)
         session.ready = msg.type_data
         session.transmit = msg.type_data
         if session.ready == 0:
@@ -690,10 +738,11 @@ Messages handled:
             session.probe_countdown = self.ready_probe_count
             if session.pipe_stream != PipeSocket.INPUT:
                 self.on_batch_start(self, session)
+    @log_on_start("{__fn}()", logger=log)
     def handle_data(self, session: Session, msg: Message) -> None:
-        "Handle DATA message."
-        if __debug__:
-            log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `DATA` message."
+        #if __debug__:
+            #log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
         if session.pipe_stream == PipeSocket.INPUT:
             if msg.has_ack_req() and not self.confirm_processing:
                 # We must create reply message directly to keep received message
@@ -724,10 +773,11 @@ Messages handled:
             else:
                 # Only peers attached to PIPE_INPUT can send DATA messages
                 self.send_close(session, ErrorCode.PROTOCOL_VIOLATION)
+    @log_on_start("{__fn}()", logger=log)
     def handle_close(self, session: Session, msg: Message) -> None:
-        "Handle CLOSE message."
-        if __debug__:
-            log.debug("%s.handle_close(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `CLOSE` message."
+        #if __debug__:
+            #log.debug("%s.handle_close(%s)", self.__class__.__name__, session.routing_id)
         try:
             self.log_pipe_close(session, msg, Direction.IN)
             self.on_pipe_closed(self, session, msg)
@@ -741,18 +791,6 @@ Messages handled:
 class PipeClientHandler(BaseFBDPHandler):
     """Base class for Data Pipe Clients.
 
-Attributes:
-    :confirm_processing: (bool) Whether ACK_REPLY message for DATA/ACK_REQ should be sent
-        before (False) or after (True) call to `on_accept_data()` callback [default: False].
-    :on_server_ready: (callback) Executed when non-zero READY is received from server.
-        Default implementation returns batch_size if < session.batch_size,
-        else session.batch_size.
-    :on_accept_data: (callback) Executed by CONSUMER when DATA message is received from
-       PIPE_OUPUT/PIPE_MONITOR. Default implementation logs warning and returns ErrorCode.OK.
-    :on_batch_start: (callback) Executed by PRODUCER when non-zero READY is received for
-        PIPE_INPUT. Default implementation logs warning.
-    :on_data_confirmed: PRODUCER callback executed when ACK_REPLY on sent DATA is received.
-
 Messages handled:
     :OPEN:  Sends CLOSE(PROTOCOL_VIOLATION).
     :READY: For non-zero READY calls `on_server_ready()` to determine reply READY value.
@@ -761,6 +799,20 @@ Messages handled:
         For PIPE_INPUT handles ACK_REPLY by calling `on_data_confirmed()`,
         otherwise sends CLOSE(PROTOCOL_VIOLATION).
     :CLOSE: Calls `on_pipe_closed()` and discards the session.
+
+Attributes:
+    confirm_processing (bool): Whether ACK_REPLY message for DATA/ACK_REQ should be sent
+        before (False) or after (True) call to `on_accept_data()` callback [default: False].
+    on_server_ready (:class:`TOnServerReady`): Executed when non-zero READY is received
+        from server. Default implementation returns batch_size if < session.batch_size,
+        else session.batch_size.
+    on_accept_data (:class:`TOnAcceptData`): Executed by CONSUMER when DATA message is
+       received from PIPE_OUPUT/PIPE_MONITOR. Default implementation logs warning and
+       returns ErrorCode.OK.
+    on_batch_start (:class:`TOnBatchStart`): Executed by PRODUCER when non-zero READY is
+        received for PIPE_INPUT. Default implementation logs warning.
+    on_data_confirmed (:class:`TOnDataConfirmed`): PRODUCER callback executed when
+        ACK_REPLY on sent DATA is received.
 """
     def __init__(self, batch_size: int = None):
         super().__init__(Origin.SERVICE, Session, batch_size)
@@ -781,20 +833,23 @@ Messages handled:
         "Default PRODUCER callback that logs warning."
         log.warning("Callback 'on_batch_start' not defined, pipe %s:%s [%s]",
                     session.pipe_stream.name, session.data_pipe, session.data_format)
+    @log_on_start("{__fn}()", logger=log)
     def __on_data_confirmed(self, handler: TPipeClientHandler, session: Session) -> None:
         "Default PRODUCER callback that does nothing."
-        if __debug__:
-            log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
+        #if __debug__:
+            #log.debug("%s._on_batch_end(%s)", self.__class__.__name__, session.routing_id)
+    @log_on_start("{__fn}()", logger=log)
     def handle_open(self, session: Session, msg: Message) -> None:
-        "Handle OPEN message."
-        if __debug__:
-            log.debug("%s.handle_open(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `OPEN` message."
+        #if __debug__:
+            #log.debug("%s.handle_open(%s)", self.__class__.__name__, session.routing_id)
         self.send_close(session, ErrorCode.PROTOCOL_VIOLATION)
+    @log_on_start("{__fn}() [ready={msg.type_data}]", logger=log)
     def handle_ready(self, session: Session, msg: Message) -> None:
-        "Handle READY message."
-        if __debug__:
-            log.debug("%s.handle_ready(%s) [%s]", self.__class__.__name__,
-                      session.routing_id, msg.type_data)
+        "Handle `READY` message."
+        #if __debug__:
+            #log.debug("%s.handle_ready(%s) [%s]", self.__class__.__name__,
+                      #session.routing_id, msg.type_data)
         # session.ready is None for first READY from server
         ready = min(msg.type_data, self.on_server_ready(self, session, msg.type_data))
         log.debug("on_server_ready(%s)->%s", msg.type_data, ready)
@@ -808,10 +863,11 @@ Messages handled:
                       session.data_pipe, exc_info=exc)
         if not session.discarded and (ready > 0) and (session.pipe_stream == PipeSocket.INPUT):
             self.on_batch_start(self, session)
+    @log_on_start("{__fn}()", logger=log)
     def handle_data(self, session: Session, msg: Message) -> None:
-        "Handle DATA message."
-        if __debug__:
-            log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `DATA` message."
+        #if __debug__:
+            #log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
         if session.pipe_stream == PipeSocket.INPUT:
             if msg.has_ack_reply():
                 self.on_data_confirmed(self, session)
@@ -842,10 +898,11 @@ Messages handled:
                         return
                 if error_code:
                     self.send_close(session, error_code)
+    @log_on_start("{__fn}()", logger=log)
     def handle_close(self, session: Session, msg: Message) -> None:
-        "Handle CLOSE message."
-        if __debug__:
-            log.debug("%s.handle_close(%s)", self.__class__.__name__, session.routing_id)
+        "Handle `CLOSE` message."
+        #if __debug__:
+            #log.debug("%s.handle_close(%s)", self.__class__.__name__, session.routing_id)
         try:
             self.log_pipe_close(session, msg, Direction.IN)
             self.on_pipe_closed(self, session, msg)
@@ -854,19 +911,20 @@ Messages handled:
                           session.pipe_stream, session.data_pipe)
         finally:
             self.discard_session(session)
+    @log_on_start("{__fn}({pipe_addr},{data_pipe},{pipe_stream.name},{data_format})]", logger=log)
     def open(self, pipe_addr: ZMQAddress, data_pipe: str, pipe_stream: PipeSocket,
              data_format: str) -> Session:
         """Opens connection to the Data Pipe.
 
 Arguments:
-    :pipe_addr:   Data Pipe endpoint.
-    :data_pipe:   Data Pipe Identification.
-    :pipe_stream: Data Pipe stream Identification.
-    :data_format: Specification of format for user data transmitted in DATA messages.
+    pipe_addr:   Data Pipe endpoint.
+    data_pipe:   Data Pipe Identification.
+    pipe_stream: Data Pipe stream Identification.
+    data_format: Specification of format for user data transmitted in DATA messages.
 """
-        if __debug__:
-            log.debug("%s.open(%s, %s, %s, %s)", self.__class__.__name__, pipe_addr,
-                      data_pipe, pipe_stream.name, data_format)
+        #if __debug__:
+            #log.debug("%s.open(%s, %s, %s, %s)", self.__class__.__name__, pipe_addr,
+                      #data_pipe, pipe_stream.name, data_format)
         session = self.connect_peer(pipe_addr)
         session.data_pipe = data_pipe
         session.pipe_stream = pipe_stream

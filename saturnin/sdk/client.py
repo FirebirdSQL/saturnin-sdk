@@ -36,7 +36,8 @@
 
 import logging
 import typing as t
-from .types import InterfaceDescriptor, PeerDescriptor, AgentDescriptor, ClientError
+from .types import InterfaceDescriptor, PeerDescriptor, AgentDescriptor, ClientError, \
+     ZMQAddress
 from .base import Channel
 from .protocol import fbsp
 from .protocol.fbsp import fbsp_proto
@@ -44,18 +45,19 @@ from .protocol.fbsp import fbsp_proto
 # Logger
 
 log = logging.getLogger(__name__)
+"Client logger"
 
 # Classes
 
 class ServiceClient(fbsp.ClientMessageHandler):
     """Base Service Client
 
-Attributes:
-    :interface_id:  Number assigned by service to interface used by client or None.
-
 Abstract methods:
     :get_handlers:  Returns Dict for mapping FBSP messages sent by service to handler methods.
     :get_interface: Returns descriptor for service interface used by client.
+
+Attributes:
+    interface_id:  Number assigned by service to interface used by client or None.
 """
     def __init__(self, chn: Channel, peer: PeerDescriptor, agent: AgentDescriptor):
         if __debug__: log.debug("%s.__init__", self.__class__.__name__)
@@ -67,19 +69,19 @@ Abstract methods:
         self.interface_id: int = None
         self.__handlers: t.Dict = None
     def handle_exception(self, session: fbsp.Session, msg: fbsp.Message, exc: Exception) -> None:
-        """Exception handler called by `dispatch()` on exception in handler. The exception
-is reraised in client, because it shouold be handled elsewhere and not swallowed by
-`dispatch()`.
+        """Exception handler called by :meth:`~saturnin.sdk.base.MessageHandler.dispatch`
+on exception in handler. The exception is reraised in client, because it shouold be handled
+elsewhere and not swallowed by :meth:`~saturnin.sdk.base.MessageHandler.dispatch`.
 """
         raise exc
     def handle_welcome(self, session: fbsp.Session, msg: fbsp.WelcomeMessage) -> None:
         """Handle WELCOME message.
 
-Save WELCOME message into session.greeting, notes number assigned by service to used
+Save WELCOME message into `session.greeting`, notes number assigned by service to used
 interface and updates message handlers.
 
 Raises:
-    :ClientError: For unexpected WELCOME, or when service does not support required interface.
+    ClientError: For unexpected WELCOME, or when service does not support required interface.
 """
         if __debug__: log.debug("%s.handle_welcome", self.__class__.__name__)
         super().handle_welcome(session, msg)
@@ -96,21 +98,29 @@ Raises:
         self.handlers = self.__handlers.copy()
         self.handlers.update(self.get_handlers(interface_id))
     def get_interface(self) -> InterfaceDescriptor:
-        """Returns descriptor for service interface used by client."""
+        """Returns descriptor for service interface used by client.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError()
     def get_handlers(self, api_number: int) -> t.Dict:
-        """Returns Dict for mapping FBSP messages sent by service to handler methods."""
+        """Returns Dict for mapping FBSP messages sent by service to handler methods.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError()
-    def open(self, endpoint: str, timeout: int = 1000) -> None:
+    def open(self, endpoint: ZMQAddress, timeout: int = 1000) -> None:
         """Opens connection to service.
 
 Arguments:
-    :endpoint: Service address.
-    :timeout:  The timeout (in milliseconds) to wait for response from service. Value None
-    means no time limit. [Defailt: 1000]
+    endpoint: Service address.
+    timeout:  The timeout (in milliseconds) to wait for response from service. Value None
+        means no time limit. [Defailt: 1000]
 
 Raises:
-    True if service was sucessfuly connected in specified time limit.
+    ClientError: if connection to service fails
 """
         if __debug__: log.debug("%s.open", self.__class__.__name__)
         session = self.connect_peer(endpoint)

@@ -43,10 +43,13 @@ from saturnin.sdk import PLATFORM_UID, PLATFORM_VERSION
 # Type annotation types
 
 TStringList = t.List[str]
-TConfig = t.TypeVar('TConfig', bound='Config')
+"List of strings"
 TSupplement = t.Optional[t.Dict[str, t.Any]]
+"name/value dictionary"
 Token = t.NewType('Token', bytearray)
+"Message token"
 RoutingID = t.NewType('RoutingID', bytes)
+"Routing ID"
 
 # Enums
 
@@ -54,21 +57,26 @@ class Enum(enum.IntEnum):
     "Extended enumeration type."
     @classmethod
     def get_member_map(cls) -> t.Dict[str, 'Enum']:
+        "Returns dictionary that maps Enum member names to Enum values (instances)."
         return cls._member_map_
     @classmethod
-    def get_value_map(cls) -> t.Dict[str, 'Enum']:
+    def get_value_map(cls) -> t.Dict[int, 'Enum']:
+        "Returns dictionary that maps int values to Enum values (instances)."
         return cls._value2member_map_
     @classmethod
     def auto(cls) -> int:
+        "Returns int for new Enum value."
         return enum.auto()
 
 
 class Flag(enum.IntFlag):
     "Extended flag type."
     def get_flags(self) -> t.List['Flag']:
+        "Returns list with all flag values defined by this type"
         return [flag for flag in self._member_map_.values()
                 if flag.value != 0 and flag in self]
-    def get_flag_names(self) -> t.List['Flag']:
+    def get_flag_names(self) -> t.List[str]:
+        "Returns list with names of all flags defined by this type"
         return [flag.name for flag in self._member_map_.values()
                 if flag.value != 0 and flag in self]
 
@@ -194,44 +202,53 @@ class PipeSocket(Enum):
 # Dataclasses
 
 class Distinct:
-    """Base class for dataclasses with distinct instances.
-"""
+    "Base class for dataclasses with distinct instances"
     def get_key(self) -> t.Any:
-        "Returns instance key. Used for instance hash computation."
+        """Returns instance key. Used for instance hash computation.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
     __hash__ = lambda self: hash(self.get_key())
 
 @dataclass(eq=True, order=True, frozen=True)
 class InterfaceDescriptor(Distinct):
-    """Interface descriptor.
+    """Interface descriptor
 
 Attributes:
-    :uid:      Interface ID (UUID).
-    :name:     Interface name.
-    :revision: Interface revision number.
-    :number:   Interface Identification Number assigned by Service
-    :requests: Enum for interface FBSP request codes.
+    uid: Interface ID
+    name: Interface name
+    revision: Interface revision number
+    number: Interface Identification Number assigned by Service
+    requests: Enum for interface FBSP request codes
 """
     uid: uuid.UUID
     name: str
     revision: int
     number: int
     requests: Enum
-    get_key = lambda self: self.uid
+    def get_key(self) -> t.Any:
+        "Returns `uid` (instance key). Used for instance hash computation."
+        return self.uid
 
 @dataclass(eq=True, order=False, frozen=True)
 class AgentDescriptor(Distinct):
-    """Service or Client descriptor.
+    """Service or Client descriptor dataclass.
+
+Note:
+    Because this is a `dataclass`, the class variables are those attributes that have
+    default value. Other attributes are created in constructor.
 
 Attributes:
-    :uid:              Agent ID (UUID).
-    :name:             Agent name.
-    :version:          Agent version string.
-    :vendor_uid:       Vendor ID (UUID).
-    :classification:   Agent classification string.
-    :platform_uid:     Butler platform ID (UUID)
-    :platform_version: Butler platform version string.
-    :supplement:       Optional list of supplemental information.
+    uid: Agent ID
+    name: Agent name
+    version: Agent version string
+    vendor_uid: Vendor ID
+    classification: Agent classification string
+    platform_uid: Butler platform ID
+    platform_version: Butler platform version string
+    supplement: Optional list of supplemental information
 """
     uid: uuid.UUID
     name: str
@@ -239,43 +256,50 @@ Attributes:
     vendor_uid: uuid.UUID
     classification: str
     platform_uid: uuid.UUID = PLATFORM_UID
+    "Butler platform ID"
     platform_version: str = PLATFORM_VERSION
+    "Butler platform version string"
     supplement: TSupplement = None
-    get_key = lambda self: self.uid
+    "Optional list of supplemental information"
+    def get_key(self) -> t.Any:
+        "Returns `uid` (instance key). Used for instance hash computation."
+        return self.uid
 
 @dataclass(eq=True, order=False, frozen=True)
 class PeerDescriptor(Distinct):
-    """Peer descriptor.
+    """Peer descriptor
 
 Attributes:
-    :uid:        Peer ID (UUID).
-    :pid:        Peer process ID (int).
-    :host:       Host name.
-    :supplement: Optional list of supplemental information.
+    uid: Peer ID
+    pid: Peer process ID
+    host: Host name
+    supplement: Optional list of supplemental information
 """
     uid: uuid.UUID
     pid: int
     host: str
     supplement: TSupplement = None
-    get_key = lambda self: self.uid
+    def get_key(self) -> t.Any:
+        "Returns `uid` (instance key). Used for instance hash computation."
+        return self.uid
 
 @dataclass(eq=True, order=False, frozen=True)
 class ServiceDescriptor(Distinct):
-    """Service descriptor.
+    """Service descriptor
 
 Attributes:
-    :agent:          Service agent descriptor.
-    :api:            Service FBSP API description or None (for microservice).
-    :dependencies:   List of (DependencyType, UUID) tuples.
-    :execution_mode: Preferred execution mode.
-    :service_type:   Type of service.
-    :facilities:     Service facilities
-    :description:    Text describing the service.
-    :implementation: Locator string for service implementation class.
-    :container:      Locator string for service container class.
-    :config:         Locator string for service configuration callable.
-    :client:         Locator string for service client class.
-    :tests:          Locator string for service test class.
+    agent: Service agent descriptor
+    api: Service FBSP API description or `None` for microservice
+    dependencies: Service dependencies (other services or interfaces)
+    execution_mode: Preferred execution mode
+    service_type: Type of service
+    facilities: Service facilities
+    description: Text describing the service
+    implementation: Locator string for service implementation class
+    container: Locator string for service container class
+    config: Locator string for service configuration callable
+    client: Locator string for service client class
+    tests: Locator string for service test class
 """
     agent: AgentDescriptor
     api: t.Optional[t.List[InterfaceDescriptor]]
@@ -286,10 +310,12 @@ Attributes:
     description: str
     implementation: str
     container: str
-    config: t.Callable[[], TConfig]
+    config: t.Callable[[], 'Config']
     client: str
     tests: str
-    get_key = lambda self: self.agent.uid
+    def get_key(self) -> t.Any:
+        "Returns `agent.uid` (instance key). Used for instance hash computation."
+        return self.agent.uid
 
 # Classes
 

@@ -51,14 +51,14 @@ class Option:
     """Configuration option (with string value).
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [Any].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value [default: False].
-    :default:     Default value [default: None].
-    :proposal:    Text with proposed configuration entry value (if it's different from default)
-                  [default: None].
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [Any].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value [default: False].
+    default:     Default value [default: None].
+    proposal:    Text with proposed configuration entry value (if it's different from default)
+                 [default: None].
+    value:       Current option value.
 """
     def __init__(self, name: str, datatype: t.Type, description: str, required: bool = False,
                  default: t.Any = None, proposal: str = None):
@@ -75,10 +75,10 @@ Attributes:
         """Set new option value.
 
 Arguments:
-    :value: New option value.
+    value: New option value.
 
 Raises:
-    :TypeError: When the new value is of the wrong type.
+    TypeError: When the new value is of the wrong type.
 """
         if value is None:
             self.clear(False)
@@ -92,14 +92,14 @@ Raises:
 `str(value)`.
 
 Arguments:
-   :value: Value that is not None and has option datatype.
+   value: Value that is not None and has option datatype.
 """
         return str(value)
     def clear(self, to_default: bool = True) -> None:
         """Clears the option value.
 
 Arguments:
-    :to_default: If True, sets the option value to default value, else to None.
+    to_default: If True, sets the option value to default value, else to None.
 """
         self._value = self.default if to_default else None
     def get_as_str(self):
@@ -110,9 +110,9 @@ Arguments:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -121,7 +121,7 @@ Arguments:
         """Validates option value.
 
 Raises:
-    :SaturninError: For incorrect option value.
+    SaturninError: For incorrect option value.
 """
         if self.required and self.value is None:
             raise SaturninError("The configuration does not define a value for"\
@@ -130,7 +130,7 @@ Raises:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             self.set_value(proto[self.name])
@@ -138,7 +138,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             proto[self.name] = self.value
@@ -151,13 +151,13 @@ class StrOption(Option):
     """Configuration option with string value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [str].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [str].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: str = None, proposal: str = None):
@@ -180,13 +180,13 @@ class IntOption(Option):
     """Configuration option with integer value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [int]
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [int]
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: int = None, proposal: str = None):
@@ -199,9 +199,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         try:
             value = config.getint(section, self.name, vars=vars_, fallback=None)
@@ -214,7 +214,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             value = proto[self.name]
@@ -228,13 +228,13 @@ class FloatOption(Option):
     """Configuration option with float value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [float].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [float].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: float = None, proposal: str = None):
@@ -247,9 +247,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         try:
             value = config.getfloat(section, self.name, vars=vars_, fallback=None)
@@ -264,13 +264,13 @@ class BoolOption(Option):
     """Configuration option with boolean value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [bool].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [bool].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: bool = None, proposal: str = None):
@@ -283,9 +283,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         try:
             value = config.getboolean(section, self.name, vars=vars_, fallback=None)
@@ -300,13 +300,13 @@ class StrListOption(Option):
     """Configuration option with list of strings value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [TStringList].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [TStringList].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: list, description: str, required: bool = False,
                  default: TStringList = None, proposal: str = None):
@@ -319,9 +319,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -333,7 +333,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             value = proto[self.name]
@@ -347,7 +347,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             proto.get_or_create_list(self.name).extend(self.value)
@@ -357,13 +357,13 @@ class ZMQAddressOption(Option):
     """Configuration option with ZMQAddress value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [TZMQAddress].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [TZMQAddress].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: list, description: str, required: bool = False,
                  default: ZMQAddress = None, proposal: str = None):
@@ -376,9 +376,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -387,7 +387,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             self.set_value(ZMQAddress(proto[self.name]))
@@ -397,13 +397,13 @@ class ZMQAddressListOption(Option):
     """Configuration option with list of ZMQAddresses value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [TZMQAddressList].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [TZMQAddressList].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: list, description: str, required: bool = False,
                  default: ZMQAddressList = None, proposal: str = None):
@@ -416,9 +416,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -430,7 +430,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             value = proto[self.name]
@@ -444,7 +444,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             proto.get_or_create_list(self.name).extend(self.value)
@@ -454,14 +454,14 @@ class EnumOption(Option):
     """Configuration option with enum value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [Enum]
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :options:     List of allowed enum values.
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [Enum]
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    options:     List of allowed enum values.
+    value:       Current option value.
 """
     def __init__(self, name: str, enum_class: t.Type[Enum], description: str, required: bool = False,
                  default: Enum = None, proposal: str = None, options: t.List = None):
@@ -474,11 +474,11 @@ Attributes:
         """Set new option value.
 
 Arguments:
-    :value: New option value.
+    value: New option value.
 
 Raises:
-    :TypeError: When the new value is of the wrong type.
-    :ValueError: When the new value is not allowed.
+    TypeError:  When the new value is of the wrong type.
+    ValueError: When the new value is not allowed.
 """
         if value is None:
             self.clear(False)
@@ -510,9 +510,9 @@ Raises:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -521,7 +521,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             value = proto[self.name]
@@ -535,13 +535,13 @@ class UUIDOption(Option):
     """Configuration option with UUID value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [uuid.UUID].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [uuid.UUID].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: uuid.UUID = None, proposal: str = None):
@@ -555,9 +555,9 @@ Attributes:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         value = config.get(section, self.name, vars=vars_, fallback=None)
         if value is not None:
@@ -566,7 +566,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             value = proto[self.name]
@@ -577,7 +577,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             proto[self.name] = self.value.hex
@@ -587,15 +587,15 @@ class MIMEOption(Option):
     """Configuration option with MIME type specification value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [str].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
-    :mime_type:   MIME type specification 'type/subtype'
-    :mime_params: MIME type parameters
+    name:        Option name.
+    datatype:    Option datatype [str].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
+    mime_type:   MIME type specification 'type/subtype'
+    mime_params: MIME type parameters
 """
     def __init__(self, name: str, description: str, required: bool = False,
                  default: str = None, proposal: str = None):
@@ -627,7 +627,7 @@ Attributes:
         """Clears the option value.
 
 Arguments:
-    :to_default: If True, sets the option value to default value, else to None.
+    to_default: If True, sets the option value to default value, else to None.
 """
         value = self.default if to_default else None
         self.__parse_value(value)
@@ -636,11 +636,11 @@ Arguments:
         """Set new option value.
 
 Arguments:
-    :value: New option value.
+    value: New option value.
 
 Raises:
-    :TypeError:  When the new value is of the wrong type.
-    :ValueError: When the new value is not allowed.
+    TypeError:  When the new value is of the wrong type.
+    ValueError: When the new value is not allowed.
 """
         if value is None:
             self.clear(False)
@@ -659,13 +659,13 @@ class ConfigOption(Option):
     """Configuration option with TConfig value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [TConfig].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
+    name:        Option name.
+    datatype:    Option datatype [TConfig].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
 """
     def __init__(self, name: str, config_class: t.Type['Config'], description: str,
                  required: bool = False, proposal: str = None,
@@ -681,7 +681,7 @@ Attributes:
 options.
 
 Raises:
-    :SaturninError: When required option does not have a value.
+    SaturninError: When required option does not have a value.
 """
         super().validate()
         if self.value is not None:
@@ -691,9 +691,9 @@ Raises:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         section_name = config.get(section, self.name, vars=vars_, fallback=None)
         if isinstance(section_name, str):
@@ -704,7 +704,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             self.value = self.datatype('%s_value' % self.name, self.description)
@@ -714,7 +714,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             self.value.save_proto(proto.get_or_create_struct(self.name))
@@ -723,14 +723,14 @@ class ConfigListOption(Option):
     """Configuration option with list of TConfig value.
 
 Attributes:
-    :name:        Option name.
-    :datatype:    Option datatype [TConfig].
-    :description: Option description. Can span multiple lines.
-    :required:    True if option must have a value.
-    :default:     Default value.
-    :proposal:    Text with proposed configuration entry (if it's different from default).
-    :value:       Current option value.
-    :cfg_class:   Configuration class (TClass descendant).
+    name:        Option name.
+    datatype:    Option datatype [TConfig].
+    description: Option description. Can span multiple lines.
+    required:    True if option must have a value.
+    default:     Default value.
+    proposal:    Text with proposed configuration entry (if it's different from default).
+    value:       Current option value.
+    cfg_class:   Configuration class (TClass descendant).
 """
     def __init__(self, name: str, config_class: t.Type['Config'], description: str,
                  required: bool = False, proposal: str = None,
@@ -746,7 +746,7 @@ Attributes:
 of all defined Configs.
 
 Raises:
-    :SaturninError: When required option does not have a value.
+    SaturninError: When required option does not have a value.
 """
         super().validate()
         if self.value is not None:
@@ -757,9 +757,9 @@ Raises:
         """Update option value from configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
-    :vars_:    Dict[option_name, option_value] with values that takes precedence over configuration.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
+    vars_:   Dict[option_name, option_value] with values that takes precedence over configuration.
 """
         section_names = config.get(section, self.name, vars=vars_, fallback=None)
         if isinstance(section_names, str):
@@ -773,7 +773,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.name in proto:
             i = 1
@@ -787,7 +787,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         if self.value is not None:
             proto_list = proto.get_or_create_list(self.name)
@@ -798,10 +798,10 @@ class Config:
     """Collection of configuration options.
 
 Attributes:
-    :name: Name associated with Collection (default section name).
-    :description: Configuration description. Can span multiple lines.
-    :on_validate: Event(Config) called by `validate()` after all options are validated.
-    :<option_name>: Defined options are directly accessible as instance attaributes.
+    name: Name associated with Collection (default section name).
+    description: Configuration description. Can span multiple lines.
+    on_validate: Event(Config) called by `validate()` after all options are validated.
+    <option_name>: Defined options are directly accessible as instance attaributes.
 """
     def __init__(self, name: str, description: str):
         self.name: str = name
@@ -817,7 +817,7 @@ Attributes:
         """Checks whether all required options have value other than None.
 
 Raises:
-    :Error: When required option does not have a value.
+    Error: When required option does not have a value.
 """
         for option in self.__options.values():
             option.validate()
@@ -832,8 +832,8 @@ Raises:
         """Update configuration.
 
 Arguments:
-    :config:  ConfigParser instance with configuration values.
-    :section: Name of ConfigParser section that should be used to get new configuration values.
+    config:  ConfigParser instance with configuration values.
+    section: Name of ConfigParser section that should be used to get new configuration values.
 """
         try:
             for option in self.__options.values():
@@ -844,7 +844,7 @@ Arguments:
         """Deserialize value from `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         for option in self.__options.values():
             option.load_proto(proto)
@@ -852,7 +852,7 @@ Arguments:
         """Serialize value into `protobuf.Struct` message.
 
 Arguments:
-    :proto: protobuf `Struct` message.
+    proto: protobuf `Struct` message.
 """
         for option in self.__options.values():
             option.save_proto(proto)
@@ -868,11 +868,11 @@ Arguments:
 class MicroserviceConfig(Config):
     """Base Task (microservice) configuration.
 
-Attributes:
-    :name: Name associated with Collection [default: 'main'].
-
 Configuration options:
     :execution_mode: Task execution mode.
+
+Attributes:
+    name: Name associated with Collection [default: 'main'].
 """
     def __init__(self, name: str, description: str):
         super().__init__(name, description)
@@ -884,12 +884,12 @@ Configuration options:
 class ServiceConfig(MicroserviceConfig):
     """Base Service configuration.
 
-Attributes:
-    :name: Name associated with Collection [default: 'main'].
-
 Configuration options:
     :endpoints: Service endpoints.
     :execution_mode: Service execution mode.
+
+Attributes:
+    name: Name associated with Collection [default: 'main'].
 """
     def __init__(self, name: str, description: str):
         super().__init__(name, description)
@@ -898,14 +898,14 @@ Configuration options:
                                                  required=True))
 
 def create_config(_cls: t.Type[Config], name: str, description: str) -> Config:
-    """Return newly created Config instance. Intended to be used with `functools.partial`
-in `ServiceDescriptor.config` definitions.
+    """Return newly created Config instance. Intended to be used with :func:`functools.partial`
+in :attr:`~saturnin.sdk.types.ServiceDescriptor.config` definitions.
 """
     return _cls(name, description)
 
 def get_config_lines(option: Option) -> t.List:
     """Returns list containing text lines suitable for use in configuration file processed
-with ConfigParser.
+with :class:`~configparser.ConfigParser`.
 
 Text lines with configuration start with comment marker ; and end with newline.
 """

@@ -56,14 +56,21 @@ from ..classic import ServiceExecutor
 from ..test.fbsp import BaseTestRunner
 
 __VERSION__ = '0.1'
+"Service runner version"
 
 SECTION_LOCAL_ADDRESS = 'local_address'
+"Configuration section name for local service addresses"
 SECTION_NODE_ADDRESS = 'node_address'
+"Configuration section name for node service addresses"
 SECTION_NET_ADDRESS = 'net_address'
+"Configuration section name for network service addresses"
 SECTION_SERVICE_UID = 'service_uid'
+"Configuration section name for service UIDs"
 SECTION_PEER_UID = 'peer_uid'
+"Configuration section name for service peer UIDs"
 
 LOG_FORMAT = '%(levelname)s: %(processName)s:%(threadName)s:%(name)s: %(message)s'
+"Format for log messages"
 
 # Functions
 
@@ -137,6 +144,70 @@ class ServiceInfo:
 
 class Runner:
     """Service runner.
+
+.. program:: svc_run
+
+usage::
+
+    svc_run [-h] [--version] [-j [JOB [JOB ...]]] [-c FILE] [-o DIR]
+                   [-t TEST [TEST ...]] [--dry-run] [-v] [-q] [--log-only]
+                   [-l {critical,fatal,error,warn,warning,info,debug,notset}]
+                   [--trace]
+
+**optional arguments:**
+
+.. option::  -h, --help
+
+   show this help message and exit
+
+.. option::  --version
+
+   show program's version number and exit
+
+**run arguments:**
+
+.. option::  -j [JOB [JOB ...]], --job [JOB [JOB ...]]
+
+    Job name (default: ['services'])
+
+.. option::  -c FILE, --config FILE
+
+    Configuration file (default: svc_run.cfg)
+
+.. option::  -o DIR, --output-dir DIR
+
+    Force directory for log files and other output (default: ${here})
+
+.. option::  -t TEST [TEST ...], --test TEST [TEST ...]
+
+    Run test on service. First item is section name, second optional item is test type
+    ('client' or 'raw') [default: client] (default: None)
+
+.. option::  --dry-run
+
+    Prepare execution but do not run any service or test (default: False)
+
+**output arguments:**
+
+.. option::  -v, --verbose
+
+    Verbose output (default: False)
+
+.. option::  -q, --quiet
+
+    No screen output (default: False)
+
+.. option::  --log-only
+
+    Suppress all screen output including error messages (default: False)
+
+.. option::  -l {critical,fatal,error,warn,warning,info,debug,notset}, --log-level {critical,fatal,error,warn,warning,info,debug,notset}
+
+    Logging level (default: WARNING)
+
+.. option::  --trace
+
+    Log unexpected errors with stack trace (default: False)
 """
     def __init__(self):
         self.parser: ArgumentParser = \

@@ -49,6 +49,7 @@ from .protocol.fbsp import validate_welcome_pb, fbsp_proto
 # Logger
 
 log = logging.getLogger(__name__)
+"Service logger"
 
 # Types
 
@@ -61,7 +62,7 @@ def load(spec: str) -> t.Any:
     """Return object from module. Module is imported if necessary.
 
 Arguments:
-    :spec: Object specification in format module[.submodule.[submodule...]]:object_name
+    spec: Object specification in format `module[.submodule.[submodule...]]:object_name`
 
 """
     module_spec, name = spec.split(':')
@@ -97,12 +98,12 @@ class Event:
 class BaseServiceImpl:
     """Base Firebird Butler Service implementation.
 
-Attributes:
-    :mngr:       ChannelManager instance. NOT INITIALIZED.
-    :stop_event: Event object used to stop the service.
-
-Configuration options (retrieved via `get()`):
+Configuration options (retrieved via :meth:`get`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 1].
+
+Attributes:
+    mngr:       ChannelManager instance. NOT INITIALIZED.
+    stop_event: Event object used to stop the service.
 """
     def __init__(self, stop_event: t.Any):
         self.stop_event: TEvent = stop_event
@@ -114,11 +115,11 @@ Child chlasses must define the attribute with given name, or `get_<name>(*args)`
 that takes default value as optional argument.
 
 Arguments:
-    :name:    Name of the variable.
-    :default: Optional defaut value. Used only for attribute, not callable.
+    name:    Name of the variable.
+    default: Optional defaut value. Used only for attribute, not callable.
 
 Raises:
-    AttributeError if value couldn't be retrieved and there is no default value provided.
+    AttributeError: if value couldn't be retrieved and there is no default value provided.
 """
         if hasattr(self, f'get_{name}'):
             fce = getattr(self, f'get_{name}')
@@ -131,7 +132,7 @@ Raises:
         """Validate that service implementation is properly initialized and configured.
 
 Raises:
-    :AssertionError: When any issue is detected.
+    AssertionError: When any issue is detected.
 """
         assert self.mngr.channels, "Channel manager without channels"
         for chn in self.mngr.channels:
@@ -140,21 +141,28 @@ Raises:
     def initialize(self, svc: 'BaseService') -> None:
         """Service initialization.
 
-Creates the channel manager with svc.zmq_context. The descendant classes must create at
-least one communication channel.
+Creates the channel manager with :attr:`svc.zmq_context <BaseService.zmq_context>`.
+
+Important:
+    The descendant classes must create at least one communication channel.
 """
         self.mngr = ChannelManager(svc.zmq_context)
     @log_on_start("{__fn}()", logger=log)
     def finalize(self, svc: 'BaseService') -> None:
         """Service finalization.
 
-Base implementation only calls shutdown() on service ChannelManager. If `shutdown_linger`
-is not defined, uses linger 1 for forced shutdown.
+Base implementation only calls :meth:`~saturnin.sdk.base.ChannelManager.shutdown` on
+service ChannelManager. If `shutdown_linger` is not defined, uses linger 1 for forced
+shutdown.
 """
         self.mngr.shutdown(self.get('shutdown_linger', 1))
     @log_on_start("{__fn}()", logger=log)
     def configure(self, svc: 'BaseService', config: Config) -> None:
-        "Service configuration. Default implementation does nothing."
+        """Service configuration.
+
+Note:
+    Default implementation does nothing.
+"""
     @log_on_start("{__fn}()", logger=log)
     def idle(self) -> None:
         """Should by called by service when waiting for messages exceeds timeout. Default
@@ -168,16 +176,15 @@ class BaseService:
 structural parts is provided by (Base)ServiceImpl instance.
 
 Attributes:
-    :impl: Service implementation.
-    :zmq_context: ZMQ Context instance used by service.
-
-Abstract methods:
-    :run: Runs the service.
+    impl: Service implementation.
+    zmq_context: ZMQ Context instance used by service.
 """
     def __init__(self, impl: BaseServiceImpl, zmq_context: zmq.Context, config: Config):
         """
 Arguments:
-    :impl:    Service implementation.
+    impl (:class:`BaseServiceImpl`): Service implementation
+    zmq_context (:class:`~zmq.Context`): ZMQ Context
+    config (:class:`~saturnin.sdk.config.Config`): Configuration object
 """
         self.zmq_context: zmq.Context = zmq_context
         self.impl: BaseServiceImpl = impl
@@ -188,11 +195,15 @@ Arguments:
         """Validate that service is properly initialized and configured.
 
 Raises:
-    :AssertionError: When any issue is detected.
+    AssertionError: When any issue is detected.
 """
         self.impl.validate()
     def run(self) -> None:
-        """Runs the service."""
+        """Runs the service.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError
     @log_on_start("{__fn}() [{self.impl.agent.name}:{self.impl.agent.uid}]",
                   logger=log)
@@ -200,7 +211,7 @@ Raises:
         """Runs initialization, configuration and validation of the service implementation.
 
 Raises:
-    :ServiceError: When service is not properly initialized and configured.
+    ServiceError: When service is not properly initialized and configured.
 """
         self.impl.initialize(self)
         self.impl.configure(self, self.config)
@@ -211,7 +222,7 @@ Raises:
         self._ready = True
     def start(self) -> None:
         """Starts the service. Initializes the service if necessary. Performs finalization
-when run() finishes.
+when :meth:`run` finishes.
 """
         log.info("Starting service %s:%s", self.impl.agent.name, self.impl.agent.uid)
         if not self._ready:
@@ -230,15 +241,15 @@ when run() finishes.
 class MicroserviceImpl(BaseServiceImpl):
     """Base microservice implementation.
 
-Attributes:
-    :mngr:       ChannelManager instance. NOT INITIALIZED.
-    :stop_event: Event object used to stop the service.
-    :agent:  AgentDescriptor.
-    :peer:   PeerDescriptor.
-    :instance_id: R/O property returning Instance UID (from Welcome data frame).
-
-Configuration options (retrieved via `get()`):
+Configuration options (retrieved via :meth:`~BaseServiceImpl.get`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 1].
+
+Attributes:
+    mngr:       ChannelManager instance. NOT INITIALIZED.
+    stop_event: Event object used to stop the service.
+    agent:  AgentDescriptor.
+    peer:   PeerDescriptor.
+    instance_id: R/O property returning Instance UID (from Welcome data frame).
 """
     def __init__(self, descriptor: ServiceDescriptor, stop_event: t.Any):
         super().__init__(stop_event)
@@ -250,7 +261,7 @@ Configuration options (retrieved via `get()`):
 needed for initialization and configuration.
 
 Raises:
-    :AssertionError: When any issue is detected.
+    AssertionError: When any issue is detected.
 """
         super().validate()
         assert isinstance(self.agent, AgentDescriptor)
@@ -262,19 +273,19 @@ Raises:
 class ServiceImpl(MicroserviceImpl):
     """Base FBSP service implementation.
 
-Attributes:
-    :mngr:        ChannelManager instance. NOT INITIALIZED.
-    :stop_event:  Event object used to stop the service.
-    :agent:       AgentDescriptor.
-    :peer:        PeerDescriptor.
-    :instance_id: R/O property returning Instance UID (from Welcome data frame).
-    :endpoints:   List of EndpointAddress instances to which the service shall bind itself.
-                  Initially empty.
-    :welcome_df:  WelcomeDataframe instance.
-    :api:         List[InterfaceDescriptor]
-
-Configuration options (retrieved via `get()`):
+Configuration options (retrieved via :meth:`~BaseServiceImpl.get`):
     :shutdown_linger:  ZMQ Linger value used on shutdown [Default 1].
+
+Attributes:
+    mngr:        ChannelManager instance. NOT INITIALIZED.
+    stop_event:  Event object used to stop the service.
+    agent:       AgentDescriptor.
+    peer:        PeerDescriptor.
+    instance_id: R/O property returning Instance UID (from Welcome data frame).
+    endpoints:   List of EndpointAddress instances to which the service shall bind itself.
+                 Initially empty.
+    welcome_df:  WelcomeDataframe instance.
+    api:         List[InterfaceDescriptor]
 """
     def __init__(self, descriptor: ServiceDescriptor, stop_event: TEvent):
         super().__init__(descriptor, stop_event)
@@ -285,7 +296,7 @@ Configuration options (retrieved via `get()`):
 needed for initialization and configuration.
 
 Raises:
-    :AssertionError: When any issue is detected.
+    AssertionError: When any issue is detected.
 """
         super().validate()
         if __debug__:
@@ -334,27 +345,27 @@ class SimpleServiceImpl(ServiceImpl):
 
 Uses one RouterChannel to handle all service clients.
 
-Attributes:
-    :mngr:        ChannelManager instance. NOT INITIALIZED.
-    :stop_event:  Event object used to stop the service.
-    :agent:       AgentDescriptor.
-    :peer:        PeerDescriptor.
-    :instance_id: R/O property returning Instance UID (from Welcome data frame).
-    :endpoints:   List of EndpointAddress instances to which the service shall bind itself.
-                  Initially empty.
-    :welcome_df:  WelcomeDataframe instance.
-    :api:         List[InterfaceDescriptor]
-    :svc_chn: Inbound RouterChannel
-
-Configuration options (retrieved via `get()`):
+Configuration options (retrieved via :meth:`~BaseServiceImpl.get`):
     :shutdown_linger:  (int) ZMQ Linger value used on shutdown [Default 0]
     :sock_opts: (dict) ZMQ socket options for main service (router) channel [default: None]
+
+Attributes:
+    mngr:        ChannelManager instance. NOT INITIALIZED.
+    stop_event:  Event object used to stop the service.
+    agent:       AgentDescriptor.
+    peer:        PeerDescriptor.
+    instance_id: R/O property returning Instance UID (from Welcome data frame).
+    endpoints:   List of EndpointAddress instances to which the service shall bind itself.
+                 Initially empty.
+    welcome_df:  WelcomeDataframe instance.
+    api:         List[InterfaceDescriptor]
+    svc_chn: Inbound RouterChannel
 """
     def __init__(self, descriptor: ServiceDescriptor, stop_event: TEvent):
         super().__init__(descriptor, stop_event)
         self.svc_chn: RouterChannel = None
     def initialize(self, svc: BaseService) -> None:
-        """Creates managed (inbound) `RouterChannel` for service.
+        """Creates managed (inbound) :Class:`~saturnin.sdk.base.RouterChannel` for service.
 """
         super().initialize(svc)
         self.svc_chn = RouterChannel(self.instance_id.hex().encode('ascii'),

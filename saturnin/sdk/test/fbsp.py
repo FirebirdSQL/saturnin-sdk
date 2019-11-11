@@ -52,6 +52,7 @@ from ..protocol.fbsp import Protocol, Session, MsgType, Message, HelloMessage, \
 # Logger
 
 log = logging.getLogger(__name__)
+"Logger for tests"
 
 # Functions
 
@@ -95,12 +96,12 @@ class BaseTestRunner:
     """Base Test Runner for Firebird Butler Services and Clients.
 
 Attributes:
-    :interface_uid: Interface UID (must be assigned by descendant class)
-    :interface_id:  Number assigned to interface
-    :ctx:           ZMQ Context instance.
-    :protocol:      FBSP Protocol instance.
-    :peer:          PeerDescriptor
-    :agent:         AgentDescriptor
+    interface_uid: Interface UID (must be assigned by descendant class)
+    interface_id:  Number assigned to interface
+    ctx:           ZMQ Context instance.
+    protocol:      FBSP Protocol instance.
+    peer:          PeerDescriptor
+    agent:         AgentDescriptor
 """
     def __init__(self, context: zmq.Context = None):
         self.interface_id: int = None
@@ -167,7 +168,11 @@ Attributes:
     def process_welcome(self, msg: WelcomeMessage):
         """Called by raw handshake to allow processing of WELCOME message by descendants."""
     def create_client(self, channel: Channel) -> ServiceClient:
-        """Called to create Service client instance for testing."""
+        """Called to create Service client instance for testing.
+
+Important:
+    Abstract method, MUST be overridden in child classes.
+"""
         raise NotImplementedError()
     def run_raw_tests(self, endpoint: str, test_names: List[str] = None):
         "Run service tests using raw ZMQ messages."

@@ -33,7 +33,9 @@ release = '0.4.0'
 # ones.
 extensions = [
     'sphinx.ext.intersphinx',
-    'sphinx.ext.todo'
+    'sphinx.ext.todo',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.autodoc'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -44,6 +46,26 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
+# Autodoc options
+# ---------------
+autoclass_content = 'class'
+autodoc_member_order = 'bysource'
+autodoc_default_options = {
+#                           'members': True, 
+#                           'inherited-members': True, 
+                           'undoc-members': True,
+                           'show-inheritance': True
+                           }
+
+napoleon_include_init_with_doc = True
+napoleon_include_private_with_doc = True
+napoleon_include_special_with_doc = True
+
+# Intersphinx  options
+intersphinx_mapping = {
+    'python': ('http://docs.python.org/3/', None),
+    'zmq': ('https://pyzmq.readthedocs.io/en/latest/', None),
+    }
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -53,6 +75,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 #html_theme = 'alabaster'
 html_theme = "bootstrap"
 html_theme_path = sphinx_bootstrap_theme.get_html_theme_path()
+
+
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -73,18 +97,18 @@ html_theme_options = {
     #    (name, "http://example.com", True) # arbitrary absolute url
     # Note the "1" or "True" value above as the third argument to indicate
     # an arbitrary url.
-#    'navbar_links': [
+    'navbar_links': [
 #        ("Introduction", "introduction"),
 #        ("RFCs", "specifications"),
 #        ("Projects", "organization"),
-#        # ("Index", "genindex"),
-#    ],
+         ("Index", "genindex"),
+    ],
 
     # Render the next and previous page links in navbar. (Default: true)
     'navbar_sidebarrel': False,
 
     # Render the current pages TOC in the navbar. (Default: true)
-    #'navbar_pagenav': True,
+    'navbar_pagenav': True,
 
     # Tab name for the current pages TOC. (Default: "Page")
     #'navbar_pagenav_name': "Page",
@@ -127,8 +151,8 @@ html_theme_options = {
     # - Bootstrap 2: https://bootswatch.com/2
     # - Bootstrap 3: https://bootswatch.com/3
     #'bootswatch_theme': "united", # cerulean, flatly, lumen, materia, united, yeti
-#    'bootswatch_theme': "cerulean",
-    'bootswatch_theme': "united",
+    'bootswatch_theme': "cerulean",
+#    'bootswatch_theme': "united",
 
     # Choose Bootstrap version.
     # Values: "3" (default) or "2" (in quotes)
