@@ -42,7 +42,7 @@ import logging
 from functools import wraps
 
 class BraceMessage(object):
-    "Logging message with curly-brace formatting. Copied from Python Logging Cookbook."
+    """Logging message with curly-brace formatting. Copied from Python Logging Cookbook."""
     def __init__(self, fmt: str, args, kwargs):
         self.fmt = fmt
         self.args = args
@@ -78,7 +78,7 @@ Attributes:
         self.__logger:logging.Logger = logger
         self.post_process: t.Dict = post_process
     def do_post_process(self, adict):
-        "Execute callables defined in `post_process`"
+        """Execute callables defined in `post_process`"""
         if self.post_process:
             for attr, fn in self.post_process.items():
                 #print("Attr:", attr, " Value:", adict.get(attr))
@@ -86,10 +86,10 @@ Attributes:
                     name = fn.__name__ if fn.__name__ != '<lambda>' else 'lambda'
                     adict['%s_%s' % (name, attr)] = fn(adict[attr])
     def before_execution(self, fn, args, kwargs):
-        "Executed before decorated callable"
+        """Executed before decorated callable"""
         pass
     def after_execution(self, fn, result, args, kwargs):
-        "Executed after decorated callable"
+        """Executed after decorated callable"""
         pass
     def _get_logger(self, fn):
         """Returns logger. If logger is not defined yet, creates logger for module name of
@@ -99,7 +99,7 @@ decorated callable."""
         return self.__logger
     @staticmethod
     def msg_params(fn, args: t.List, kwargs: t.Dict) -> t.MutableMapping:
-        "Build dict with callable arguments for message interpolation"
+        """Build dict with callable arguments for message interpolation"""
         signature = inspect.signature(fn)
         result = signature.bind_partial(*args, **kwargs).arguments
         for name, value in signature.parameters.items():
@@ -124,7 +124,7 @@ decorated callable."""
 class log_on_start(DebugLoggingDecorator):
     """Decorator that logs debug message before decorated callable is executed."""
     def before_execution(self, fn, args, kwargs):
-        "Executed before decorated callable"
+        """Executed before decorated callable"""
         logger = self._get_logger(fn)
         msg_params = self.msg_params(fn, args, kwargs)
         self.do_post_process(msg_params)
@@ -143,7 +143,7 @@ Attributes:
         super().__init__(message, logger=logger, post_process=post_process)
         self.result_fmt_var = result_fmt_var
     def after_execution(self, fn, result, args, kwargs):
-        "Executed after decorated callable"
+        """Executed after decorated callable"""
         logger = self._get_logger(fn)
         msg_params = self.msg_params(fn, args, kwargs)
         msg_params[self.result_fmt_var] = result

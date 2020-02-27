@@ -42,10 +42,10 @@ Supported requests:
 
 import logging
 from itertools import groupby
-from saturnin.service.roman.api import RomanRequest
-from saturnin.sdk.protocol.fbsp import MsgType, ErrorCode, Session, ServiceMessagelHandler, \
+from .api import RomanRequest
+from saturnin.core.protocol.fbsp import MsgType, ErrorCode, Session, ServiceMessagelHandler, \
      HelloMessage, CancelMessage, RequestMessage, bb2h, fbsp_proto
-from saturnin.sdk.service import SimpleServiceImpl, BaseService
+from saturnin.core.service import SimpleServiceImpl, BaseService
 
 # Logger
 
@@ -54,9 +54,9 @@ log = logging.getLogger(__name__)
 # Functions
 
 def arabic2roman(line: str) -> bytes:
-    "Returns UTF-8 bytestring with arabic numbers replaced with Roman ones."
+    """Returns UTF-8 bytestring with arabic numbers replaced with Roman ones."""
     def i2r(num: int) -> str:
-        "Converts Arabic number to Roman number."
+        """Converts Arabic number to Roman number."""
         val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
         syb = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
         roman_num = ''
@@ -89,7 +89,7 @@ class RomanMessageHandler(ServiceMessagelHandler):
                               MsgType.DATA: self.send_protocol_violation,
                              })
     def handle_hello(self, session: Session, msg: HelloMessage):
-        "HELLO message handler. Sends WELCOME message back to the client."
+        """HELLO message handler. Sends WELCOME message back to the client."""
         if __debug__:
             log.debug("%s.handle_hello(%s)", self.__class__.__name__, session.routing_id)
         super().handle_hello(session, msg)
@@ -97,7 +97,7 @@ class RomanMessageHandler(ServiceMessagelHandler):
         welcome.peer.CopyFrom(self.welcome_df)
         self.send(welcome, session)
     def handle_cancel(self, session: Session, msg: CancelMessage):
-        "Handle CANCEL message."
+        """Handle CANCEL message."""
         # ROMAN uses simple REQUEST/REPLY API, so there is no reason to support CANCEL
         if __debug__:
             log.debug("%s.handle_cancel(%s)", self.__class__.__name__, session.routing_id)

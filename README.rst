@@ -2,4 +2,4 @@
 saturnin-sdk
 ============
 
-Firebird Butler Development Platform for Python
+SDK for Saturnin - A Firebird Butler Development Platform for Python

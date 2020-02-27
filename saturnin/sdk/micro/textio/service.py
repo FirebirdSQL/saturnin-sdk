@@ -39,14 +39,15 @@ The TEXTIO microservice transfers data between a file and a Data Pipe.
 import logging
 import typing as t
 import os
-from saturnin.sdk.types import SocketMode, ZMQAddress, ServiceFacilities, \
+from saturnin.core.types import SocketMode, ZMQAddress, ServiceFacilities, \
      ServiceDescriptor, StopError
-from saturnin.sdk.base import DealerChannel
-from saturnin.sdk.config import MIMEOption
-from saturnin.sdk.protocol.fbdp import PipeSocket, BaseFBDPHandler, PipeClientHandler, \
+from saturnin.core.base import DealerChannel
+from saturnin.core.config import MIMEOption
+from saturnin.core.protocol.fbdp import PipeSocket, BaseFBDPHandler, PipeClientHandler, \
      PipeServerHandler, Session, ErrorCode, MsgType, Message
-from saturnin.sdk.service import MicroserviceImpl, BaseService
+from saturnin.core.service import MicroserviceImpl, BaseService
 from .api import FileOpenMode, TextIOConfig
+from time import sleep
 
 # Logger
 
@@ -76,8 +77,9 @@ class TextIOServiceImpl(MicroserviceImpl):
         self.file_format: str = None
         self.file_mime_type: str = None
         self.file_format_params: t.Dict[str, str] = None
+        self.is_reader: bool = None
     def _open_file(self):
-        "Open the input file."
+        """Open the input file."""
         self._close_file()
         log.debug('%s._open_file(%s:%s)', self.__class__.__name__, self.file_mode.name,
                   self.filename)
@@ -112,16 +114,16 @@ class TextIOServiceImpl(MicroserviceImpl):
             self.file = open(fspec, mode=file_mode, encoding=charset, errors=errors,
                                    closefd=self.filename.lower() not in self.SYSIO)
         except Exception as exc:
-            raise StopError("Failed to open file [mode:%s]" % self.file_mode.name,
+            raise StopError(f"Failed to open file [mode:{self.file_mode.name}]",
                             code = ErrorCode.ERROR) from exc
     def _close_file(self) -> None:
-        "Close the input file if necessary"
+        """Close the input file if necessary"""
         if self.file:
             log.debug('%s._close_file(%s)', self.__class__.__name__, self.filename)
             self.file.close()
             self.file = None
     def _open_pipe(self) -> None:
-        "Open the data pipe in CONNECT mode."
+        """Open the data pipe in CONNECT mode."""
         log.debug('%s._open_pipe()', self.__class__.__name__)
         session = self.pipe_chn.handler.open(self.pipe_address, self.data_pipe,
                                              self.pipe_socket, self.pipe_format)
@@ -129,14 +131,14 @@ class TextIOServiceImpl(MicroserviceImpl):
         session.errors = self.pipe_format_params.get('errors', 'strict')
     def _on_accept_client(self, handler: BaseFBDPHandler, session: Session,
                           data_pipe: str, pipe_stream: PipeSocket, data_format: str) -> int:
-        "SERVER callback. Validates and processes client connection request."
+        """SERVER callback. Validates and processes client connection request."""
         log.debug('%s._on_accept_client(%s,%s,%s)', self.__class__.__name__, data_pipe,
                   pipe_stream, data_format)
         if data_pipe != self.data_pipe:
-            raise StopError("Unknown data pipe '%s'" % data_pipe,
+            raise StopError(f"Unknown data pipe '{data_pipe}'",
                             code = ErrorCode.PIPE_ENDPOINT_UNAVAILABLE)
         elif pipe_stream != self.pipe_socket:
-            raise StopError("'%s' stream not available" % pipe_stream.name,
+            raise StopError(f"'{pipe_stream.name}' stream not available",
                             code = ErrorCode.PIPE_ENDPOINT_UNAVAILABLE)
         mime = MIMEOption('data_format', '')
         try:
@@ -185,7 +187,7 @@ from the input file."""
             handler.send_ready(session, handler.batch_size)
     def _on_accept_data(self, handler: BaseFBDPHandler, session: Session,
                         data: bytes) -> t.Optional[int]:
-        "CONSUMER callback that writes data to the output file."
+        """CONSUMER callback that writes data to the output file."""
         log.debug('%s._on_accept_data(%s)', self.__class__.__name__, data)
         if self.file is None:
             self._open_file()
@@ -196,13 +198,19 @@ from the input file."""
         except Exception:
             log.exception("Unexpected error while processing data from pipe")
             return ErrorCode.INTERNAL_ERROR
+    def _deferred_shutdown(self, *args) -> None:
+        """Shut down the service on idle. This is a workaround to problem found in ZMQ,
+where pending messages are not delivered via TCP transport to the peer before context in
+shut down despite infinite linger.
+"""
+        self.stop_event.set()
     def on_pipe_closed(self, handler: BaseFBDPHandler, session: Session,
                        msg: Message) -> None:
-        "General callback that logs info(OK) or error, and closes the input file."
+        """General callback that logs info(OK) or error, and closes the input file."""
         log.debug('%s.on_pipe_closed[%s:%s]', self.__class__.__name__, session, self.stop_on_close)
         self._close_file()
         if self.stop_on_close:
-            self.stop_event.set()
+            self.mngr.defer(self._deferred_shutdown)
     def initialize(self, svc: BaseService):
         super().initialize(svc)
         self.pipe_chn = DealerChannel(b'%s-out' % self.instance_id.hex().encode('ascii'),
@@ -216,28 +224,36 @@ from the input file."""
         self.data_pipe = config.data_pipe.value
         self.pipe_mode = config.pipe_mode.value
         self.pipe_address = config.pipe_address.value
-        self.pipe_socket = config.socket_type.value
         self.pipe_format = config.pipe_format.value
         self.pipe_mime_format = config.pipe_format.mime_type
         self.pipe_format_params = dict(config.pipe_format.mime_params)
         self.filename = config.file.value
         self.file_mode = config.file_mode.value
+        self.is_reader = self.file_mode in [FileOpenMode.READ, FileOpenMode.APPEND]
         self.file_format = config.file_format.value
         self.file_mime_type = config.file_format.mime_type
         self.file_format_params = dict(config.file_format.mime_params)
         #
         if config.pipe_mode.value == SocketMode.BIND:
-            if self.pipe_socket == PipeSocket.INPUT:
-                self.facilities = ServiceFacilities.INPUT_SERVER
+            if self.is_reader:
+                # Readers BIND to OUTPUT
+                self.pipe_socket = PipeSocket.OUTPUT
+                self.facilities = ServiceFacilities.OUTPUT_AS_SERVER
             else:
-                self.facilities = ServiceFacilities.OUTPUT_SERVER
+                # Writers BIND to INPUT
+                self.pipe_socket = PipeSocket.INPUT
+                self.facilities = ServiceFacilities.INPUT_AS_SERVER
             handler = PipeServerHandler(config.pipe_batch_size.value)
             handler.on_accept_client = self._on_accept_client
         else:
-            if self.pipe_socket == PipeSocket.INPUT:
-                self.facilities = ServiceFacilities.INPUT_CLIENT
+            if self.is_reader:
+                # Readers CONNECT to INPUT
+                self.pipe_socket = PipeSocket.INPUT
+                self.facilities = ServiceFacilities.OUTPUT_AS_CLIENT
             else:
-                self.facilities = ServiceFacilities.OUTPUT_CLIENT
+                # Writers CONNECT to OUTPUT
+                self.pipe_socket = PipeSocket.OUTPUT
+                self.facilities = ServiceFacilities.INPUT_AS_CLIENT
             handler = PipeClientHandler(config.pipe_batch_size.value)
         handler.on_batch_start = self._on_batch_start
         handler.on_accept_data = self._on_accept_data
@@ -249,7 +265,7 @@ from the input file."""
         else:
             self.mngr.defer(self._open_pipe)
     def validate(self) -> None:
-        ""
+        """"""
         if self.file_mime_type != 'text/plain':
             raise StopError("Only 'text/plain' MIME type supported")
     def finalize(self, svc: BaseService) -> None:

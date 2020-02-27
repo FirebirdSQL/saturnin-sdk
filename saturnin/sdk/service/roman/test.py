@@ -35,11 +35,11 @@
 """
 
 #from saturnin.sdk.types import TClient
-from saturnin.sdk.base import Channel
+from saturnin.core.base import Channel
 from saturnin.sdk.test.fbsp import BaseTestRunner, zmq, print_msg
 #from saturnin.sdk.client import ServiceClient
-from saturnin.service.roman.api import RomanRequest, ROMAN_INTERFACE_UID
-from saturnin.service.roman.client import RomanClient
+from .api import RomanRequest, ROMAN_INTERFACE_UID
+from .client import RomanClient
 
 class TestRunner(BaseTestRunner):
     """Test Runner for ROMAN Service and Client.
@@ -53,7 +53,7 @@ class TestRunner(BaseTestRunner):
     def create_client(self, channel: Channel) -> RomanClient:
         return RomanClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
-        "Execute Client API call."
+        """Execute Client API call."""
         print('Sent:')
         for line in self.test_data:
             print(' ' * 4, line)
@@ -62,7 +62,7 @@ class TestRunner(BaseTestRunner):
         for line in data:
             print(' ' * 4, line)
     def raw_roman(self, socket: zmq.Socket):
-        "Raw test of ROMAN request."
+        """Raw test of ROMAN request."""
         print("Sending ROMAN request:")
         msg = self.protocol.create_request_for(self.interface_id, RomanRequest.ROMAN,
                                                self.get_token())
@@ -74,5 +74,5 @@ class TestRunner(BaseTestRunner):
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
     def client_roman(self, client: RomanClient):
-        "Client test of roman() API call."
+        """Client test of roman() API call."""
         self.run_request(client.roman)

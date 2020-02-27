@@ -50,11 +50,11 @@ Supported requests:
 import logging
 from typing import Any
 from struct import pack, unpack
-from saturnin.sdk.types import SaturninError, ServiceDescriptor
-from saturnin.service.roman.client import RomanClient
-from saturnin.sdk.base import DealerChannel
-from saturnin.sdk.service import SimpleServiceImpl, BaseService
-from saturnin.sdk.protocol.fbsp import Session, bb2h, ServiceMessagelHandler, \
+from saturnin.core.types import SaturninError, ServiceDescriptor
+from saturnin.sdk.service.roman.client import RomanClient
+from saturnin.core.base import DealerChannel
+from saturnin.core.service import SimpleServiceImpl, BaseService
+from saturnin.core.protocol.fbsp import Session, bb2h, ServiceMessagelHandler, \
      MsgType, MsgFlag, State, ErrorCode, HelloMessage, CancelMessage, DataMessage, \
      ReplyMessage, RequestMessage, note_exception, fbsp_proto
 from .api import EchoRequest, EchoConfig
@@ -90,7 +90,7 @@ class EchoMessageHandler(ServiceMessagelHandler):
         self.roman_cli: RomanClient = None
         self.roman_address = None
     def handle_hello(self, session: Session, msg: HelloMessage):
-        "HELLO message handler. Sends WELCOME message back to the client."
+        """HELLO message handler. Sends WELCOME message back to the client."""
         if __debug__:
             log.debug("%s.handle_hello(%s)", self.__class__.__name__, session.routing_id)
         super().handle_hello(session, msg)
@@ -202,15 +202,14 @@ All messages must have a valid handle in `type_data`.
                     else:
                         # Did we miss a DATA message?
                         self.send_error(session, req_msg, ErrorCode.PROTOCOL_VIOLATION,
-                                        "Announced %s messages, but only %s received" %
-                                        (req_msg.expect, len(req_msg.data)))
+                                        f"Announced {req_msg.expect} messages, but only {len(req_msg.data)} received")
                         session.request_done(req_msg)
         else:
             self.send_error(session, session.greeting, ErrorCode.PROTOCOL_VIOLATION,
                             "Invalid DATA.type_data content")
             session.request_done(req_msg)
     def handle_echo(self, session: Session, msg: RequestMessage):
-        "ECHO request handler."
+        """ECHO request handler."""
         if __debug__:
             log.debug("%s.handle_echo(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -221,7 +220,7 @@ All messages must have a valid handle in `type_data`.
         self.send(reply, session)
         session.request_done(msg)
     def handle_echo_roman(self, session: Session, msg: RequestMessage):
-        "ECHO_ROMAN request handler."
+        """ECHO_ROMAN request handler."""
         if __debug__:
             log.debug("%s.handle_echo_roman(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -256,7 +255,7 @@ All messages must have a valid handle in `type_data`.
                             "ROMAN service not available")
         session.request_done(msg)
     def handle_echo_more(self, session: Session, msg: RequestMessage):
-        "ECHO_MORE request handler."
+        """ECHO_MORE request handler."""
         if __debug__:
             log.debug("%s.handle_echo_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -277,7 +276,7 @@ All messages must have a valid handle in `type_data`.
             data_msg.data.clear()
         session.request_done(msg.token)
     def handle_echo_state(self, session: Session, msg: RequestMessage):
-        "ECHO_STATE request handler."
+        """ECHO_STATE request handler."""
         if __debug__:
             log.debug("%s.handle_echo_state(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -294,7 +293,7 @@ All messages must have a valid handle in `type_data`.
         self.send(state, session)
         session.request_done(msg.token)
     def handle_echo_sync(self, session: Session, msg: RequestMessage):
-        "Handle ECHO_SYNC message."
+        """Handle ECHO_SYNC message."""
         if __debug__:
             log.debug("%s.handle_echo_sync(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -304,7 +303,7 @@ All messages must have a valid handle in `type_data`.
         reply.set_flag(MsgFlag.ACK_REQ)
         self.send(reply, session)
     def handle_echo_data_more(self, session: Session, msg: RequestMessage):
-        "Handle ECHO_DATA_MORE message."
+        """Handle ECHO_DATA_MORE message."""
         if __debug__:
             log.debug("%s.handle_echo_data_more(%s)", self.__class__.__name__, session.routing_id)
         session.note_request(msg)
@@ -316,7 +315,7 @@ All messages must have a valid handle in `type_data`.
         reply.data.append(pack('H', hnd)) # handle for type_data in DATA messages
         self.send(reply, session)
     def handle_echo_data_sync(self, session: Session, msg: RequestMessage):
-        "Handle ECHO_DATA_SYNC message."
+        """Handle ECHO_DATA_SYNC message."""
         if __debug__:
             log.debug("%s.handle_echo_data_sync(%s)", self.__class__.__name__,
                       session.routing_id)
@@ -348,7 +347,7 @@ class EchoServiceImpl(SimpleServiceImpl):
         # Message handler for ECHO service
         self.svc_chn.set_handler(EchoMessageHandler(self.welcome_df))
     def configure(self, svc: BaseService, config: EchoConfig) -> None:
-        "Service configuration."
+        """Service configuration."""
         super().configure(svc, config)
         # Channel to ROMAN service
         if config.roman_address is not None:

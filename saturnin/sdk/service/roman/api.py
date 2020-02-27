@@ -42,10 +42,10 @@ Supported requests:
 
 from uuid import UUID
 from functools import partial
-from saturnin.sdk import VENDOR_UID
-from saturnin.sdk.types import Enum, AgentDescriptor, InterfaceDescriptor, \
+from saturnin.core import VENDOR_UID
+from saturnin.core.types import Enum, AgentDescriptor, InterfaceDescriptor, \
      ServiceDescriptor, ExecutionMode, ServiceType, ServiceFacilities
-from saturnin.sdk.config import ServiceConfig, create_config
+from saturnin.core.config import ServiceConfig, create_config
 
 # It's not an official service, so we can use any UUID constants
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
@@ -56,17 +56,17 @@ ROMAN_INTERFACE_UID: UUID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
 # Request Codes
 
 class RomanRequest(Enum):
-    "Roman Service Request Code"
+    """Roman Service Request Code"""
     ROMAN = 1
 
 # Service description
 
 SERVICE_AGENT: AgentDescriptor = \
     AgentDescriptor(uid=SERVICE_UID,
-                    name="roman",
+                    name='firebird.saturnin.sdk.roman',
                     version=SERVICE_VERSION,
                     vendor_uid=VENDOR_UID,
-                    classification="example/service")
+                    classification='example/service')
 
 SERVICE_INTERFACE: InterfaceDescriptor = \
     InterfaceDescriptor(uid=ROMAN_INTERFACE_UID,
@@ -84,10 +84,10 @@ SERVICE_DESCRIPTION: ServiceDescriptor = \
                       service_type=ServiceType.PROCESSING,
                       facilities=ServiceFacilities.FBSP_SOCKET,
                       description="Sample ROMAN service",
-                      implementation='saturnin.service.roman.service:RomanServiceImpl',
-                      container='saturnin.sdk.classic:SimpleService',
+                      implementation='saturnin.sdk.service.roman.service:RomanServiceImpl',
+                      container='saturnin.core.classic:SimpleService',
                       config=partial(create_config, ServiceConfig,
                                      '%s_service' % SERVICE_AGENT.name, "ROMAN service."),
-                      client='saturnin.service.roman.client:RomanClient',
-                      tests='saturnin.service.roman.test:TestRunner'
+                      client='saturnin.sdk.service.roman.client:RomanClient',
+                      tests='saturnin.sdk.service.roman.test:TestRunner'
                       )

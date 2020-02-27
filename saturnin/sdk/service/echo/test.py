@@ -35,11 +35,11 @@
 """
 
 from struct import pack, unpack
-from saturnin.sdk.base import Channel
+from saturnin.core.base import Channel
 from saturnin.sdk.test.fbsp import BaseTestRunner, zmq, print_msg
-from saturnin.sdk.protocol.fbsp import StateMessage, MsgType, MsgFlag
-from saturnin.service.echo.api import EchoRequest, ECHO_INTERFACE_UID
-from saturnin.service.echo.client import EchoClient
+from saturnin.core.protocol.fbsp import StateMessage, MsgType, MsgFlag
+from .api import EchoRequest, ECHO_INTERFACE_UID
+from .client import EchoClient
 
 class TestRunner(BaseTestRunner):
     """Test Runner for ECHO Service and Client.
@@ -53,7 +53,7 @@ class TestRunner(BaseTestRunner):
     def create_client(self, channel: Channel) -> EchoClient:
         return EchoClient(channel, self.peer, self.agent)
     def run_request(self, api_call):
-        "Execute Client API call."
+        """Execute Client API call."""
         print('Sent:')
         for line in self.test_data:
             print(' ' * 4, line)
@@ -62,7 +62,7 @@ class TestRunner(BaseTestRunner):
         for line in data:
             print(' ' * 4, line)
     def raw_echo(self, socket: zmq.Socket):
-        "Raw test of ECHO request."
+        """Raw test of ECHO request."""
         print("Sending ECHO request:")
         msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO,
                                                self.get_token())
@@ -74,7 +74,7 @@ class TestRunner(BaseTestRunner):
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
     def raw_roman(self, socket: zmq.Socket):
-        "Raw test of ECHO_ROMAN request."
+        """Raw test of ECHO_ROMAN request."""
         print("Sending ECHO request:")
         msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_ROMAN,
                                                self.get_token())
@@ -86,7 +86,7 @@ class TestRunner(BaseTestRunner):
         msg = self.protocol.parse(zmsg)
         print_msg(msg)
     def raw_echo_more(self, socket: zmq.Socket):
-        "Raw test of ECHO_MORE request."
+        """Raw test of ECHO_MORE request."""
         print("Sending ECHO_MORE request:")
         msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_MORE,
                                                self.get_token())
@@ -106,7 +106,7 @@ class TestRunner(BaseTestRunner):
                 break
         print("    End of data stream")
     def raw_echo_state(self, socket: zmq.Socket):
-        "Raw test of ECHO_STATE request."
+        """Raw test of ECHO_STATE request."""
         print("Sending ECHO_STATE request:")
         msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_STATE,
                                                self.get_token())
@@ -126,7 +126,7 @@ class TestRunner(BaseTestRunner):
                 break
         print("    End of data stream")
     def raw_echo_sync(self, socket: zmq.Socket):
-        "Raw test of ECHO_SYNC request."
+        """Raw test of ECHO_SYNC request."""
         print("Sending ECHO_SYNC request:")
         msg = self.protocol.create_request_for(self.interface_id, EchoRequest.ECHO_SYNC,
                                                self.get_token())
@@ -156,7 +156,7 @@ class TestRunner(BaseTestRunner):
                 break
         print("    End of data stream")
     def raw_echo_data_more(self, socket: zmq.Socket):
-        "Raw test of ECHO_DATA_MORE request."
+        """Raw test of ECHO_DATA_MORE request."""
         print("Sending ECHO_DATA_MORE request:")
         token = self.get_token()
         msg = self.protocol.create_request_for(self.interface_id,
@@ -188,7 +188,7 @@ class TestRunner(BaseTestRunner):
                 break
         print("    End of data stream")
     def raw_echo_data_sync(self, socket: zmq.Socket):
-        "Raw test of ECHO_DATA_SYNC request."
+        """Raw test of ECHO_DATA_SYNC request."""
         print("Sending ECHO_DATA_SYNC request:")
         token = self.get_token()
         msg = self.protocol.create_request_for(self.interface_id,
@@ -225,23 +225,23 @@ class TestRunner(BaseTestRunner):
                 break
         print("    End of data stream")
     def client_echo(self, client: EchoClient):
-        "Client test of echo() API call."
+        """Client test of echo() API call."""
         self.run_request(client.echo)
     def client_echo_roman(self, client: EchoClient):
-        "Client test of echo_roman() API call."
+        """Client test of echo_roman() API call."""
         self.run_request(client.echo_roman)
     def client_echo_more(self, client: EchoClient):
-        "Client test of echo_more() API call."
+        """Client test of echo_more() API call."""
         self.run_request(client.echo_more)
     def client_echo_state(self, client: EchoClient):
-        "Client test of echo_state() API call."
+        """Client test of echo_state() API call."""
         self.run_request(client.echo_state)
     def client_echo_sync(self, client: EchoClient):
-        "Client test of echo_sync() API call."
+        """Client test of echo_sync() API call."""
         self.run_request(client.echo_sync)
     def client_echo_data_more(self, client: EchoClient):
-        "Client test of echo_data_more() API call."
+        """Client test of echo_data_more() API call."""
         self.run_request(client.echo_data_more)
     def client_echo_data_sync(self, client: EchoClient):
-        "Client test of echo_data_sync() API call."
+        """Client test of echo_data_sync() API call."""
         self.run_request(client.echo_data_sync)

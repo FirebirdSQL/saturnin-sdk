@@ -63,7 +63,7 @@ the exception as it's handled elsewhere.
 """
         raise exc
     def handle_error(self, session: Session, msg: ErrorMessage):
-        "Handle ERROR message received from Service."
+        """Handle ERROR message received from Service."""
         if __debug__:
             log.debug("%s.handle_error(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token
@@ -71,7 +71,7 @@ the exception as it's handled elsewhere.
             session.request_done(msg.token)
         raise exception_for(msg)
     def handle_reply(self, session: Session, msg: ReplyMessage):
-        "Handle Service REPLY message."
+        """Handle Service REPLY message."""
         if __debug__:
             log.debug("%s.handle_reply(%s)", self.__class__.__name__, session.routing_id)
         req = session.get_request(msg.token)
@@ -101,7 +101,7 @@ the exception as it's handled elsewhere.
             # only for sake of clarity how the client side of ECHO protocol works.
             pass
     def handle_data(self, session: Session, msg: DataMessage):
-        "Handle DATA message."
+        """Handle DATA message."""
         if __debug__:
             log.debug("%s.handle_data(%s)", self.__class__.__name__, session.routing_id)
         req = session.get_request(msg.token)
@@ -140,7 +140,7 @@ the exception as it's handled elsewhere.
                     self.last_token_seen = msg.token
                     session.request_done(req)
     def handle_state(self, session: Session, msg: StateMessage):
-        "Handle STATE message."
+        """Handle STATE message."""
         if __debug__:
             log.debug("%s.handle_state(%s)", self.__class__.__name__, session.routing_id)
         if msg.state == State.FINISHED:
@@ -149,7 +149,7 @@ the exception as it's handled elsewhere.
         else:
             raise ServiceError(f"Unexpected STATE {msg.state.name} response.")
     def handle_simple_echo(self, session: Session, msg: ReplyMessage):
-        "ECHO/ECHO_ROMAN reply handler."
+        """ECHO/ECHO_ROMAN reply handler."""
         if __debug__:
             log.debug("%s.handle_simple_echo(%s)", self.__class__.__name__, session.routing_id)
         self.last_token_seen = msg.token

@@ -42,26 +42,26 @@ from time import monotonic
 from struct import pack
 import uuid
 import zmq
-from .. import VENDOR_UID
-from ..types import PeerDescriptor, AgentDescriptor, ClientError
-from ..base import ChannelManager, Channel, DealerChannel
-from ..client import ServiceClient
-from ..protocol.fbsp import Protocol, Session, MsgType, Message, HelloMessage, \
+from saturnin.core import VENDOR_UID
+from saturnin.core.types import PeerDescriptor, AgentDescriptor, ClientError
+from saturnin.core.base import ChannelManager, Channel, DealerChannel
+from saturnin.core.client import ServiceClient
+from saturnin.core.protocol.fbsp import Protocol, Session, MsgType, Message, HelloMessage, \
      WelcomeMessage, uid2uuid
 
 # Logger
 
 log = logging.getLogger(__name__)
-"Logger for tests"
+"""Logger for tests"""
 
 # Functions
 
 def print_title(title, size=80, char='='):
-    "Prints centered title surrounded by char."
+    """Prints centered title surrounded by char."""
     print(f"  {title}  ".center(size, char))
 
 def print_msg(msg: Message, data_frames: str = None, indent: int = 4):
-    "Pretty-print message."
+    """Pretty-print message."""
     print('\n'.join(('%s%s' % (' ' * indent, line) for line
                      in msg.get_printout(with_data=data_frames is None).splitlines())))
     if data_frames is not None:
@@ -70,14 +70,14 @@ def print_msg(msg: Message, data_frames: str = None, indent: int = 4):
     print('    ' + '~' * (80 - indent))
 
 def print_data(data: str = None, indent: int = 4):
-    "Pretty-print data."
+    """Pretty-print data."""
     if data is not None:
         print('\n'.join(('%s%s' % (' ' * indent, line) for line in
                          uid2uuid(str(data).splitlines()))))
     print('    ' + '~' * (80 - indent))
 
 def print_session(session: Session):
-    "Print information about remote peer."
+    """Print information about remote peer."""
     print('Service information:')
     print('Peer uid:      ', session.peer_id)
     print('Host:          ', session.host)
@@ -115,11 +115,11 @@ Attributes:
                             "Saturnin SDK test client", '1.0',
                             VENDOR_UID, 'system/test')
     def get_token(self) -> bytes:
-        "Return new FBSP message token from internal counter."
+        """Return new FBSP message token from internal counter."""
         self._cnt += 1
         return pack('Q', self._cnt)
     def _raw_handshake(self, socket: zmq.Socket):
-        "Raw ZMQ FBSP handshake test."
+        """Raw ZMQ FBSP handshake test."""
         print("Sending HELLO:")
         msg: HelloMessage = self.protocol.create_message_for(MsgType.HELLO, self.get_token())
         msg.peer.instance.uid = self.peer.uid.bytes
@@ -146,10 +146,10 @@ Attributes:
         self.interface_id = interface_id
         self.process_welcome(msg)
     def _client_handshake(self, client: ServiceClient):
-        "Client handshake test."
+        """Client handshake test."""
         print_session(client.get_session())
     def _run(self, test_names: List[str], *args):
-        "Run test methods."
+        """Run test methods."""
         test_names.sort()
         start = monotonic()
         for name in test_names:
@@ -175,7 +175,7 @@ Important:
 """
         raise NotImplementedError()
     def run_raw_tests(self, endpoint: str, test_names: List[str] = None):
-        "Run service tests using raw ZMQ messages."
+        """Run service tests using raw ZMQ messages."""
         test_list = test_names if test_names else [name for name in dir(self)
                                                    if name.startswith('raw_')]
         test_list.insert(0, '_raw_handshake')
@@ -189,7 +189,7 @@ Important:
         socket.send_multipart(msg.as_zmsg())
         socket.close()
     def run_client_tests(self, endpoint: str, test_names: List[str] = None):
-        "Run service tests using service client."
+        """Run service tests using service client."""
         test_list = test_names if test_names else [name for name in dir(self)
                                                    if name.startswith('client_')]
         test_list.insert(0, '_client_handshake')

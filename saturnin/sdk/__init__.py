@@ -2,7 +2,7 @@
 #
 # PROGRAM/MODULE: saturnin-sdk
 # FILE:           saturnin/sdk/__init__.py
-# DESCRIPTION:    Saturnin SDK Package
+# DESCRIPTION:    Saturnin SDK
 # CREATED:        21.2.2019
 #
 # The contents of this file are subject to the MIT License
@@ -31,19 +31,9 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"Saturnin SDK Package"
+"Saturnin SDK"
 
-import uuid
+VERSION: str = '0.5.0'
+"Saturnin SDK version (semver)"
 
-PLATFORM_OID: str = '1.3.6.1.4.1.53446.1.2.0'
-"Platform OID (`firebird.butler.platform.saturnin-sdk`)"
-PLATFORM_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, PLATFORM_OID)
-"Platform UID (:func:`~uuid.uuid5` - NAMESPACE_OID)"
-PLATFORM_VERSION: str = '0.4.0'
-"Platform version (semver)"
-
-VENDOR_OID: str = '1.3.6.1.4.1.53446.1.3.0'
-"Platform vendor OID (`firebird.butler.vendor.firebird`)"
-VENDOR_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, VENDOR_OID)
-"Platform vendor UID (:func:`~uuid.uuid5` - NAMESPACE_OID)"
 
