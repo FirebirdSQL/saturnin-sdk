@@ -1,9 +1,9 @@
 #coding:utf-8
 #
 # PROGRAM/MODULE: saturnin-sdk
-# FILE:           saturnin/sdk/__init__.py
-# DESCRIPTION:    Saturnin SDK
-# CREATED:        21.2.2019
+# FILE:           saturnin/sdk/_scripts/cli.py
+# DESCRIPTION:    Script for Saturnin SDK CLI manager
+# CREATED:        19.1.2021
 #
 # The contents of this file are subject to the MIT License
 #
@@ -25,15 +25,31 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-# Copyright (c) 2019 Firebird Project (www.firebirdsql.org)
+# Copyright (c) 2021 Firebird Project (www.firebirdsql.org)
 # All Rights Reserved.
 #
 # Contributor(s): Pavel Císař (original code)
-#                 ______________________________________.
+#                 ______________________________________
 
-"Saturnin SDK"
+"""Saturnin SDK CLI manager script
 
-VERSION: str = '0.5.0'
-"Saturnin SDK version (semver)"
 
+"""
+
+from __future__ import annotations
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from saturnin.lib.command import CommandManager
+
+PROG_NAME = 'saturnin-sdk'
+
+def main():
+    """Saturnin SDK manager.
+    """
+    cmds = CommandManager(ArgumentParser(PROG_NAME, description=main.__doc__,
+                                         formatter_class=ArgumentDefaultsHelpFormatter))
+    cmds.load_commands('saturnin.sdk.commands.cli')
+    cmds.run()
+
+if __name__ == '__main__':
+    main()
 

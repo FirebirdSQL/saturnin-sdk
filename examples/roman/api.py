@@ -1,7 +1,7 @@
 #coding:utf-8
 #
 # PROGRAM/MODULE: Saturnin SDK examples
-# FILE:           saturnin/service/roman/api.py
+# FILE:           roman/api.py
 # DESCRIPTION:    API for sample ROMAN service
 # CREATED:        12.3.2019
 #
@@ -33,61 +33,50 @@
 
 """Saturnin SDK examples - ROMAN service API
 
-ROMAN service returns data frames with arabic numbers replaced with Roman numbers.
+ROMAN service returns text data frames with arabic numbers replaced with Roman numbers.
 
 Supported requests:
 
     :ROMAN: REPLY with altered REQUEST data frames.
 """
 
+from __future__ import annotations
 from uuid import UUID
 from functools import partial
-from saturnin.core import VENDOR_UID
-from saturnin.core.types import Enum, AgentDescriptor, InterfaceDescriptor, \
-     ServiceDescriptor, ExecutionMode, ServiceType, ServiceFacilities
-from saturnin.core.config import ServiceConfig, create_config
+from firebird.base.config import create_config
+from saturnin.base import VENDOR_UID, pkg_name, AgentDescriptor, \
+     ServiceDescriptor, ButlerInterface
+from saturnin.component.service import ServiceConfig
 
-# It's not an official service, so we can use any UUID constants
+# It's not an official service, so we can use any UUID constant
 SERVICE_UID: UUID = UUID('413f76e8-4662-11e9-aa0d-5404a6a1fd6e')
-SERVICE_VERSION: str = '0.2'
+SERVICE_VERSION: str = '0.2.0'
 
 ROMAN_INTERFACE_UID: UUID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
 
-# Request Codes
-
-class RomanRequest(Enum):
-    """Roman Service Request Code"""
+class RomanAPI(ButlerInterface):
+    """Roman Service Request Codes.
+    """
     ROMAN = 1
-
-# Service description
+    @classmethod
+    def get_uid(cls) -> UUID:
+        return ROMAN_INTERFACE_UID
 
 SERVICE_AGENT: AgentDescriptor = \
     AgentDescriptor(uid=SERVICE_UID,
-                    name='firebird.saturnin.sdk.roman',
+                    name='saturnin.example.roman',
                     version=SERVICE_VERSION,
                     vendor_uid=VENDOR_UID,
                     classification='example/service')
 
-SERVICE_INTERFACE: InterfaceDescriptor = \
-    InterfaceDescriptor(uid=ROMAN_INTERFACE_UID,
-                        name="Roman service API",
-                        revision=1, number=1,
-                        requests=RomanRequest)
+SERVICE_API = [RomanAPI]
 
-SERVICE_API = [SERVICE_INTERFACE]
-
-SERVICE_DESCRIPTION: ServiceDescriptor = \
+SERVICE_DESCRIPTOR: ServiceDescriptor = \
     ServiceDescriptor(agent=SERVICE_AGENT,
                       api=SERVICE_API,
-                      dependencies=[],
-                      execution_mode=ExecutionMode.THREAD,
-                      service_type=ServiceType.PROCESSING,
-                      facilities=ServiceFacilities.FBSP_SOCKET,
                       description="Sample ROMAN service",
-                      implementation='saturnin.sdk.service.roman.service:RomanServiceImpl',
-                      container='saturnin.core.classic:SimpleService',
+                      facilities=[],
+                      package=pkg_name(__name__),
+                      factory=f'{pkg_name(__name__)}.service:RomanService',
                       config=partial(create_config, ServiceConfig,
-                                     '%s_service' % SERVICE_AGENT.name, "ROMAN service."),
-                      client='saturnin.sdk.service.roman.client:RomanClient',
-                      tests='saturnin.sdk.service.roman.test:TestRunner'
-                      )
+                                     f'{SERVICE_AGENT.name}_service'))

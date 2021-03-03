@@ -40,23 +40,20 @@ Supported requests:
     :ROMAN: REPLY with altered REQUEST data frames.
 """
 
-import logging
+from __future__ import annotations
 from itertools import groupby
-from .api import RomanRequest
-from saturnin.core.protocol.fbsp import MsgType, ErrorCode, Session, ServiceMessagelHandler, \
-     HelloMessage, CancelMessage, RequestMessage, bb2h, fbsp_proto
-from saturnin.core.service import SimpleServiceImpl, BaseService
-
-# Logger
-
-log = logging.getLogger(__name__)
-
-# Functions
+from saturnin.base import Channel
+from saturnin.protocol.fbsp import FBSPService, FBSPSession, FBSPMessage, \
+     ErrorCode
+from saturnin.component.service import Service
+from .api import RomanAPI
 
 def arabic2roman(line: str) -> bytes:
-    """Returns UTF-8 bytestring with arabic numbers replaced with Roman ones."""
+    """Returns UTF-8 bytestring with arabic numbers replaced with Roman ones.
+    """
     def i2r(num: int) -> str:
-        """Converts Arabic number to Roman number."""
+        """Converts Arabic number to Roman number.
+        """
         val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
         syb = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
         roman_num = ''
@@ -76,57 +73,31 @@ def arabic2roman(line: str) -> bytes:
                          ((k, ''.join(list(g))) for k, g in groupby(line, isdigit))),
                  'utf8')
 
-# Classes
 
-class RomanMessageHandler(ServiceMessagelHandler):
-    """Message handler for ROMAN service."""
-    RQ_ROMAN = bb2h(1, RomanRequest.ROMAN)
-    def __init__(self, welcome_df: fbsp_proto.FBSPWelcomeDataframe):
-        super().__init__()
-        self.welcome_df = welcome_df
-        # Our message handlers
-        self.handlers.update({(MsgType.REQUEST, self.RQ_ROMAN): self.handle_roman,
-                              MsgType.DATA: self.send_protocol_violation,
-                             })
-    def handle_hello(self, session: Session, msg: HelloMessage):
-        """HELLO message handler. Sends WELCOME message back to the client."""
-        if __debug__:
-            log.debug("%s.handle_hello(%s)", self.__class__.__name__, session.routing_id)
-        super().handle_hello(session, msg)
-        welcome = self.protocol.create_welcome_reply(msg)
-        welcome.peer.CopyFrom(self.welcome_df)
-        self.send(welcome, session)
-    def handle_cancel(self, session: Session, msg: CancelMessage):
-        """Handle CANCEL message."""
-        # ROMAN uses simple REQUEST/REPLY API, so there is no reason to support CANCEL
-        if __debug__:
-            log.debug("%s.handle_cancel(%s)", self.__class__.__name__, session.routing_id)
-        if msg.has_ack_req():
-            self.send(self.protocol.create_ack_reply(msg), session)
-        self.send_error(session, session.greeting, ErrorCode.NOT_IMPLEMENTED,
-                        "ROMAN service does not support request cancelation")
-    def handle_roman(self, session: Session, msg: RequestMessage):
+class RomanService(Service):
+    """ROMAN service implementation.
+    """
+    def register_api_handlers(self, service: FBSPService) -> None:
+        """Called by `initialize()` for registration of service API handlers and FBSP
+        service event handlers.
+        """
+        service.register_api_handler(RomanAPI.ROMAN, self.handle_roman)
+    def handle_roman(self, channel: Channel, session: FBSPSession, msg: FBSPMessage,
+                     protocol: FBSPService) -> None:
         """Handle REQUEST/ROMAN message.
 
-Data frames must contain strings as UTF-8 encoded bytes. We'll send them back in REPLY with
-Arabic numbers replaced with Roman ones.
-"""
-        if __debug__:
-            log.debug("%s.handle_roman(%s)", self.__class__.__name__, session.routing_id)
+        Data frames must contain strings as UTF-8 encoded bytes. We'll send them back in
+        REPLY with Arabic numbers replaced with Roman ones.
+        """
         if msg.has_ack_req():
-            self.send(self.protocol.create_ack_reply(msg), session)
-        reply = self.protocol.create_reply_for(msg)
+            channel.send(protocol.create_ack_reply(msg), session)
+        reply = protocol.create_reply_for(msg)
         try:
             for data in msg.data:
                 line = data.decode('utf8')
                 reply.data.append(arabic2roman(line))
-            self.send(reply, session)
+            channel.send(reply, session)
         except UnicodeDecodeError:
-            self.send_error(session, msg, ErrorCode.BAD_REQUEST,
-                            "Data must be UTF-8 bytestrings")
+            protocol.send_error(session, msg, ErrorCode.BAD_REQUEST,
+                                        "Data must be UTF-8 bytestrings")
 
-class RomanServiceImpl(SimpleServiceImpl):
-    """Implementation of ROMAN service."""
-    def initialize(self, svc: BaseService):
-        super().initialize(svc)
-        self.svc_chn.set_handler(RomanMessageHandler(self.welcome_df))
