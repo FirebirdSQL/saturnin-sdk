@@ -21,10 +21,10 @@ use the "saturnin-sdk" command line manager:
 
 1. First register the directory with services using::
 
-   saturnin-sdk site -a <PATH>
+     saturnin-sdk site -a <PATH>
 
 2. Register all services in all linked SDK directories using::
 
-   saturnin-sdk service -r all
+     saturnin-sdk service -r all
 
 .. _gihub releases: https://github.com/FirebirdSQL/saturnin-sdk/releases
