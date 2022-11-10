@@ -44,8 +44,7 @@ from __future__ import annotations
 from uuid import UUID
 from functools import partial
 from firebird.base.config import create_config
-from saturnin.base import VENDOR_UID, pkg_name, AgentDescriptor, \
-     ServiceDescriptor, ButlerInterface
+from saturnin.base import VENDOR_UID, AgentDescriptor, ServiceDescriptor, ButlerInterface
 from saturnin.component.service import ServiceConfig
 
 # It's not an official service, so we can use any UUID constant

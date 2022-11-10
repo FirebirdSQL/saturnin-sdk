@@ -44,7 +44,7 @@ import uuid
 from enum import Enum, auto
 from functools import partial
 from firebird.base.config import create_config, EnumOption, ListOption
-from saturnin.base import VENDOR_UID, ComponentConfig, pkg_name, AgentDescriptor, ServiceDescriptor
+from saturnin.base import VENDOR_UID, ComponentConfig, AgentDescriptor, ServiceDescriptor
 
 # OID: iso.org.dod.internet.private.enterprise.firebird.butler.platform.saturnin.micro.dummy
 SERVICE_OID: str = '1.3.6.1.4.1.53446.1.2.0.3.0'

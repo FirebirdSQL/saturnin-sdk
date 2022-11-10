@@ -3,7 +3,7 @@ requires = ["setuptools >= 53.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "saturnin.micro.dummy"
+name = "saturnin-example-dummy"
 version = "0.1.0"
 description = "Test dummy microservice"
 readme = "README.rst"
@@ -17,12 +17,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     ]
 dependencies = [
-    "saturnin>=0.7.0"
+    "saturnin>=0.7.3"
     ]
 
 [project.urls]
@@ -32,7 +34,8 @@ Documentation = "https://saturnin-sdk.rtfd.io"
 Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
-[tool.saturnin.metadata]
-component-type = "service"
-uid = "94e3b9e2-5acf-528b-8922-f7d1ccd39cdd"
-descriptor = "api:SERVICE_DESCRIPTOR"
+[project.entry-points."saturnin.service"]
+"examples.dummy" = "examples.dummy.api:SERVICE_DESCRIPTOR"
+
+[tool.setuptools]
+zip-safe = true

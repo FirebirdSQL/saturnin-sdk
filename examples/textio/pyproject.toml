@@ -3,26 +3,28 @@ requires = ["setuptools >= 53.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "saturnin.example.textio"
+name = "saturnin-example-textio"
 version = "0.1.0"
 description = "Sample TEXTIO microservice"
 readme = "README.rst"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
 authors = [{ name = "Pavel Císař", email = "pcisar@users.sourceforge.net"}]
-keywords = ["text", "filter", "micro"]
+keywords = ["text", "input", "output", "micro"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     ]
 dependencies = [
-    "saturnin>=0.7.0"
+    "saturnin>=0.7.3"
     ]
 
 [project.urls]
@@ -32,7 +34,5 @@ Documentation = "https://saturnin-sdk.rtfd.io"
 Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
-[tool.saturnin.metadata]
-component-type = "service"
-uid = "7fe7a9fe-d60b-11e9-ad9f-5404a6a1fd6e"
-descriptor = "api:SERVICE_DESCRIPTOR"
+[project.entry-points."saturnin.service"]
+"examples.textio" = "examples.textio.api:SERVICE_DESCRIPTOR"

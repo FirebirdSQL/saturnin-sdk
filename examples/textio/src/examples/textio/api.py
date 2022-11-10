@@ -40,10 +40,10 @@ from __future__ import annotations
 from enum import IntEnum, auto
 from uuid import UUID
 from functools import partial
-from firebird.base.config import create_config, MIME, StrOption, EnumOption, \
-     IntOption, BoolOption, ZMQAddressOption, MIMEOption
-from saturnin.base import VENDOR_UID, Error, ComponentConfig, AgentDescriptor, \
-     ServiceDescriptor, SocketMode
+from firebird.base.config import (create_config, MIME, StrOption, EnumOption,  IntOption,
+                                  BoolOption, ZMQAddressOption, MIMEOption)
+from saturnin.base import (VENDOR_UID, Error, ComponentConfig, AgentDescriptor,
+                           ServiceDescriptor, SocketMode)
 
 # It's not an official service, so we can use any UUID constant
 SERVICE_UID: UUID = UUID('7fe7a9fe-d60b-11e9-ad9f-5404a6a1fd6e')
