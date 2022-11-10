@@ -76,7 +76,7 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=SERVICE_API,
                       description="Sample ROMAN service",
                       facilities=[],
-                      package=pkg_name(__name__),
-                      factory=f'{pkg_name(__name__)}.service:RomanService',
+                      package='roman',
+                      factory='roman.service:RomanService',
                       config=partial(create_config, ServiceConfig,
                                      f'{SERVICE_AGENT.name}_service'))

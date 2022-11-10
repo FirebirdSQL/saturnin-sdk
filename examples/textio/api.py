@@ -42,7 +42,7 @@ from uuid import UUID
 from functools import partial
 from firebird.base.config import create_config, MIME, StrOption, EnumOption, \
      IntOption, BoolOption, ZMQAddressOption, MIMEOption
-from saturnin.base import VENDOR_UID, Error, ComponentConfig, pkg_name, AgentDescriptor, \
+from saturnin.base import VENDOR_UID, Error, ComponentConfig, AgentDescriptor, \
      ServiceDescriptor, SocketMode
 
 # It's not an official service, so we can use any UUID constant
@@ -107,7 +107,7 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=[],
                       description="Sample TEXTIO microservice",
                       facilities=[],
-                      package=pkg_name(__name__),
-                      factory=f'{pkg_name(__name__)}.service:MicroTextIOSvc',
+                      package='textio',
+                      factory=f'textio.service:MicroTextIOSvc',
                       config=partial(create_config, TextIOConfig,
                                      f'{SERVICE_AGENT.name}_service'))

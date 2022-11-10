@@ -17,14 +17,15 @@ You may also checkout the whole `saturnin-sdk` repository, and install the SDK i
 Saturnin site directly using `pip -e .`.
 
 To register (example and your own) services for use with Saturnin in "development" mode,
-use the "saturnin-sdk" command line manager:
+use `pip -e .` from root directory of service package. For example to register `TextIO`
+sample service:
 
-1. First register the directory with services using::
+1. CD to `examples/txtio`
+2. Run `pip -e .`
 
-     saturnin-sdk site -a <PATH>
+.. important::
 
-2. Register all services in all linked SDK directories using::
+   Your own services can't be registered without proper `pyproject.toml`.
 
-     saturnin-sdk service -r all
 
 .. _gihub releases: https://github.com/FirebirdSQL/saturnin-sdk/releases

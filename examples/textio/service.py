@@ -142,7 +142,7 @@ class MicroTextIOSvc(MicroService):
         if self.file_format.mime_type != 'text/plain':
             raise StopError("Only 'text/plain' MIME type supported")
         #
-        self.is_reader: bool = self.file_mode in [FileOpenMode.READ, FileOpenMode.APPEND]
+        self.is_reader: bool = self.file_mode in (FileOpenMode.READ, FileOpenMode.APPEND)
         get_logger(self).debug('{is_reader=}', is_reader=self.is_reader)
         self.pipe_socket: PipeSocket = None
         if self.pipe_mode == SocketMode.BIND:
@@ -251,7 +251,7 @@ class MicroTextIOSvc(MicroService):
         if session.pipe != self.data_pipe:
             raise StopError(f"Unknown data pipe '{session.pipe}'",
                             code = ErrorCode.PIPE_ENDPOINT_UNAVAILABLE)
-        elif session.socket != self.pipe_socket:
+        if session.socket != self.pipe_socket:
             raise StopError(f"'{session.socket}' socket not available",
                             code = ErrorCode.PIPE_ENDPOINT_UNAVAILABLE)
         # We work with MIME formats, so we'll convert the format specification to MIME

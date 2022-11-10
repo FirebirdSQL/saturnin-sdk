@@ -86,8 +86,8 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=[],
                       description="Test dummy microservice",
                       facilities=[],
-                      package=pkg_name(__name__),
-                      factory=f'{pkg_name(__name__)}.service:MicroDummySvc',
+                      package='dummy',
+                      factory='dummy.service:MicroDummySvc',
                       config=partial(create_config, DummyConfig,
                                      f'{SERVICE_AGENT.name}.service'))
 

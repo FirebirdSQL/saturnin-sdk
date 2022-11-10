@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools >= 53.0.0", "wheel"]
+requires = ["setuptools >= 65.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "saturnin-sdk"
-version = "0.7.0"
+version = "0.7.3"
 description = "SDK for Saturnin (A Firebird Butler Development Platform for Python)"
 readme = "README.rst"
 requires-python = ">=3.8"
@@ -18,6 +18,8 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
@@ -26,8 +28,11 @@ classifiers = [
     "Topic :: Software Development :: Object Brokering"
     ]
 dependencies = [
-    "saturnin>=0.7.0"
+    "saturnin>=0.7.3"
     ]
+
+[tool.setuptools]
+zip-safe = true
 
 [project.urls]
 Home = "https://github.com/FirebirdSQL/saturnin-sdk"
@@ -36,13 +41,3 @@ Documentation = "ttps://saturnin-sdk.rtfd.io"
 Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
-[project.scripts]
-saturnin = "saturnin.sdk._scripts.cli:main"
-
-[project.entry-points."saturnin.service.iterator"]
-saturnin-sdk.site.services = "saturnin.sdk.site:site.iter_registered_services"
-
-[project.entry-points."saturnin.sdk.commands.cli"]
-saturnin.sdk.site = "saturnin.sdk._scripts.commands.cli:SiteCommand"
-saturnin.sdk.service = "saturnin.sdk._scripts.commands.cli:ServiceCommand"
-saturnin.sdk.help = "saturnin.lib.command:HelpCommand"
