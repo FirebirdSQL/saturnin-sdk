@@ -24,7 +24,7 @@ classifiers = [
     "Operating System :: MacOS",
     ]
 dependencies = [
-    "saturnin>=0.7.3"
+    "saturnin>=0.8.0"
     ]
 
 [project.urls]
@@ -35,7 +35,7 @@ Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
 [project.entry-points."saturnin.service"]
-"examples.dummy" = "examples.dummy.api:SERVICE_DESCRIPTOR"
+"94e3b9e2-5acf-528b-8922-f7d1ccd39cdd" = "saturnin.examples.dummy.api:SERVICE_DESCRIPTOR"
 
 [tool.setuptools]
 zip-safe = true

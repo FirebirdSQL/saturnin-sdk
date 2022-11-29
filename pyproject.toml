@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "saturnin-sdk"
-version = "0.7.3"
+version = "0.8.0"
 description = "SDK for Saturnin (A Firebird Butler Development Platform for Python)"
 readme = "README.rst"
 requires-python = ">=3.8"
@@ -28,7 +28,7 @@ classifiers = [
     "Topic :: Software Development :: Object Brokering"
     ]
 dependencies = [
-    "saturnin>=0.7.3"
+    "saturnin>=0.8.0"
     ]
 
 [tool.setuptools]

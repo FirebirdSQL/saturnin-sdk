@@ -107,7 +107,6 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=[],
                       description="Sample TEXTIO microservice",
                       facilities=[],
-                      package='textio',
-                      factory=f'textio.service:MicroTextIOSvc',
+                      factory=f'saturnin.examples.textio.service:MicroTextIOSvc',
                       config=partial(create_config, TextIOConfig,
                                      f'{SERVICE_AGENT.name}_service'))

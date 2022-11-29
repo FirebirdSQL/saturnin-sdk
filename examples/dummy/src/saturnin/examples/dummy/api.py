@@ -86,8 +86,7 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=[],
                       description="Test dummy microservice",
                       facilities=[],
-                      package='dummy',
-                      factory='dummy.service:MicroDummySvc',
+                      factory='saturnin.examples.dummy.service:MicroDummySvc',
                       config=partial(create_config, DummyConfig,
                                      f'{SERVICE_AGENT.name}.service'))
 

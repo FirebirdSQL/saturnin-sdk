@@ -24,7 +24,7 @@ classifiers = [
     "Operating System :: MacOS",
     ]
 dependencies = [
-    "saturnin>=0.7.3"
+    "saturnin>=0.8.0"
     ]
 
 [project.urls]
@@ -35,4 +35,4 @@ Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
 [project.entry-points."saturnin.service"]
-"examples.textio" = "examples.textio.api:SERVICE_DESCRIPTOR"
+"7fe7a9fe-d60b-11e9-ad9f-5404a6a1fd6e" = "saturnin.examples.textio.api:SERVICE_DESCRIPTOR"

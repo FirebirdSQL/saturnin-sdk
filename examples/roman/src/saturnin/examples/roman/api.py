@@ -75,7 +75,6 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=SERVICE_API,
                       description="Sample ROMAN service",
                       facilities=[],
-                      package='roman',
-                      factory='roman.service:RomanService',
+                      factory='saturnin.examples.roman.service:RomanService',
                       config=partial(create_config, ServiceConfig,
                                      f'{SERVICE_AGENT.name}_service'))
