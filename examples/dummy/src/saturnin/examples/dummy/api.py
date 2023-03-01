@@ -43,8 +43,9 @@ from __future__ import annotations
 import uuid
 from enum import Enum, auto
 from functools import partial
-from firebird.base.config import create_config, EnumOption, ListOption
-from saturnin.base import VENDOR_UID, ComponentConfig, AgentDescriptor, ServiceDescriptor
+from firebird.base.config import EnumOption, ListOption
+from saturnin.base import (create_config, VENDOR_UID, ComponentConfig, AgentDescriptor,
+                           ServiceDescriptor)
 
 # OID: iso.org.dod.internet.private.enterprise.firebird.butler.platform.saturnin.micro.dummy
 SERVICE_OID: str = '1.3.6.1.4.1.53446.1.2.0.3.0'
@@ -52,6 +53,7 @@ SERVICE_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, SERVICE_OID)
 SERVICE_VERSION: str = '0.1.0'
 
 class FailOn(Enum):
+    "Steps/events when service should fail."
     NEVER = auto()
     INIT = auto()
     RESOURCE_AQUISITION = auto()
@@ -87,6 +89,5 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       description="Test dummy microservice",
                       facilities=[],
                       factory='saturnin.examples.dummy.service:MicroDummySvc',
-                      config=partial(create_config, DummyConfig,
+                      config=partial(create_config, DummyConfig, SERVICE_UID,
                                      f'{SERVICE_AGENT.name}.service'))
-

@@ -1,21 +1,20 @@
 [build-system]
-requires = ["setuptools >= 65.0.0", "wheel"]
+requires = ["setuptools >= 53.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "saturnin-sdk"
-version = "0.8.0"
-description = "SDK for Saturnin (A Firebird Butler Development Platform for Python)"
+name = "saturnin-example-app-printfile"
+version = "0.1.0"
+description = "Print text file application"
 readme = "README.rst"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-authors = [{ name = "Pavel Cisar", email = "pcisar@users.sourceforge.net"}]
-keywords = ["Saturnin", "SDK", "Firebird", "Butler", "Services", "ZeroMQ"]
+authors = [{ name = "Pavel Císař", email = "pcisar@users.sourceforge.net"}]
+keywords = ["text", "filter", "micro"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -23,23 +22,20 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
-    "Topic :: Software Development :: Object Brokering"
     ]
 dependencies = [
     "saturnin>=0.8.0"
     ]
 
-[tool.setuptools]
-zip-safe = true
-
 [project.urls]
 Home = "https://github.com/FirebirdSQL/saturnin-sdk"
-Documentation = "ttps://saturnin-sdk.rtfd.io"
+Documentation = "https://saturnin-sdk.rtfd.io"
 "Bug Reports" = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
 Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
-[project.entry-points."saturnin.commands"]
-"create.standalone" = "saturnin.sdk.commands.recipes:create_standalone"
+[project.entry-points."saturnin.application"]
+"c4aa5f0b-74b7-55ea-8fc8-e3eb41335049" = "saturnin.examples.apps.print_file.api:APP_DESCRIPTOR"
+
+[tool.setuptools]
+zip-safe = true

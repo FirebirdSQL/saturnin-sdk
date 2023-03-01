@@ -59,7 +59,7 @@ class MicroDummySvc(MicroService):
         self.log_context = 'main'
         get_logger(self).info("Initialization...")
         self._fail_on: FailOn = config.fail_on.value
-        get_logger(self).info("{fail_on=}", fail_on=self._fail_on)
+        get_logger(self).info("{fail_on=}", fail_on=self._fail_on.value)
         self._schedule: List[int] = config.schedule.value
         get_logger(self).info("{schedule=}", schedule=self._schedule)
         if self._fail_on is FailOn.INIT:

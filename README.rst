@@ -14,18 +14,18 @@ Examples are not distributed via PyPI. You can either download the ZIP package f
 directory directly.
 
 You may also checkout the whole `saturnin-sdk` repository, and install the SDK into your
-Saturnin site directly using `pip -e .`.
+Saturnin site directly using `saturnin install -e .`.
 
 To register (example and your own) services for use with Saturnin in "development" mode,
-use `pip -e .` from root directory of service package. For example to register `TextIO`
-sample service:
+use `saturnin install -e .` from root directory of service package. For example to register
+`TextIO` sample service:
 
 1. CD to `examples/txtio`
-2. Run `pip -e .`
+2. Run `saturnin install -e .`
 
 .. important::
 
-   Your own services can't be registered without proper `pyproject.toml`.
+   Your services can't be registered without proper `pyproject.toml`.
 
 
 .. _gihub releases: https://github.com/FirebirdSQL/saturnin-sdk/releases

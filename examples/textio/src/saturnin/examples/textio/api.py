@@ -40,9 +40,9 @@ from __future__ import annotations
 from enum import IntEnum, auto
 from uuid import UUID
 from functools import partial
-from firebird.base.config import (create_config, MIME, StrOption, EnumOption,  IntOption,
+from firebird.base.config import (MIME, StrOption, EnumOption,  IntOption,
                                   BoolOption, ZMQAddressOption, MIMEOption)
-from saturnin.base import (VENDOR_UID, Error, ComponentConfig, AgentDescriptor,
+from saturnin.base import (create_config, VENDOR_UID, Error, ComponentConfig, AgentDescriptor,
                            ServiceDescriptor, SocketMode)
 
 # It's not an official service, so we can use any UUID constant
@@ -108,5 +108,5 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       description="Sample TEXTIO microservice",
                       facilities=[],
                       factory=f'saturnin.examples.textio.service:MicroTextIOSvc',
-                      config=partial(create_config, TextIOConfig,
+                      config=partial(create_config, TextIOConfig, SERVICE_UID,
                                      f'{SERVICE_AGENT.name}_service'))

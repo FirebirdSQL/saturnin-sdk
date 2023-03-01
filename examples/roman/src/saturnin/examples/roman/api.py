@@ -43,8 +43,8 @@ Supported requests:
 from __future__ import annotations
 from uuid import UUID
 from functools import partial
-from firebird.base.config import create_config
-from saturnin.base import VENDOR_UID, AgentDescriptor, ServiceDescriptor, ButlerInterface
+from saturnin.base import (create_config, VENDOR_UID, AgentDescriptor, ServiceDescriptor,
+                           ButlerInterface)
 from saturnin.component.service import ServiceConfig
 
 # It's not an official service, so we can use any UUID constant
@@ -76,5 +76,5 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       description="Sample ROMAN service",
                       facilities=[],
                       factory='saturnin.examples.roman.service:RomanService',
-                      config=partial(create_config, ServiceConfig,
+                      config=partial(create_config, ServiceConfig, SERVICE_UID,
                                      f'{SERVICE_AGENT.name}_service'))
