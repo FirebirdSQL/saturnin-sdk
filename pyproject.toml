@@ -36,7 +36,7 @@ zip-safe = true
 
 [project.urls]
 Home = "https://github.com/FirebirdSQL/saturnin-sdk"
-Documentation = "ttps://saturnin-sdk.rtfd.io"
+Documentation = "https://saturnin-sdk.rtfd.io"
 "Bug Reports" = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
 Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
