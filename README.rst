@@ -7,7 +7,7 @@ This repository contains SDK for Saturnin, and example services and applications
 The `saturnin-sdk` package (released on PyPI) contains the SDK itself, without examples.
 
 To work with the SDK, it's necessary to install and properly initialize the `saturnin`
-(see `saturnin`_ documentation for details).
+(see `Saturnin`_ documentation for details).
 
 Examples are not distributed via PyPI. You can either download the ZIP package from
 `gihub releases`_ and unpack it into directory of your choice, or checkout the "examples"
@@ -23,10 +23,15 @@ package. For example to register `TextIO` sample service:
 1. CD to `examples/textio`
 2. Run `saturnin install package -e .`
 
-.. important::
+Documentation for Saturnin and other related packages:
 
-   Your services can't be registered without proper `pyproject.toml`.
+- `Firebird Butler`_
+- `Saturnin`_ - The Firebird Butler platform for Python
+- `Saturnin CORE`_ services package
+- `Saturnin SDK`_
 
-
-.. _saturnin: https://saturnin.rtfd.io/
+.. _Firebird Butler: https://firebird-butler.rtfd.io/
+.. _Saturnin: https://saturnin.rtfd.io/
+.. _Saturnin CORE: https://saturnin-core.rtfd.io/
+.. _Saturnin SDK: https://saturnin-sdk.rtfd.io/
 .. _gihub releases: https://github.com/FirebirdSQL/saturnin-sdk/releases
