@@ -33,7 +33,7 @@
 
 """Saturnin examples - Print text file application
 
-This sample application prints text files with optional syntax highlight.
+This sample application prints a text file on screen with optional syntax highlight.
 """
 
 from __future__ import annotations
@@ -66,8 +66,9 @@ def print_file(ctx: typer.Context,
                encoding: str=typer.Option('utf-8', help="File encoding"),
                lexer: str=typer.Option(None, help="Syntax lexer",
                                        autocompletion=lexer_completer)) -> None:
-    """Sample application that prints text files with optional syntax highlight.
+    """Sample application that prints a text file on screen with optional syntax highlight.
     """
+    # The command name is the recipe name
     recipe_name = ctx.command.name
     recipe: RecipeInfo = recipe_registry.get(recipe_name)
     if recipe is None:
@@ -102,8 +103,8 @@ def create_config() -> str:
     return """[saturnin.recipe]
 recipe_type = bundle
 execution_mode = normal
-description = Print text file.
-application = c4aa5f0b-74b7-55ea-8fc8-e3eb41335049
+description = Prints a text file on screen with optional syntax highlight.
+application = 826ecaca-d3b6-11ed-97b5-5c879cc92822
 
 [bundle]
 agents = reader, writer

@@ -59,7 +59,7 @@ def create_standalone(recipe_name: str=typer.Argument(..., help="Recipe name",
                       section: str=typer.Option(None,
                                                 help="Configuration section name"),
                       output: Path=typer.Option(None, help="Output file")):
-    """Create standalone bundle runner for recipe, suitable for compilation with Nuitka.
+    """Creates standalone runner (container) for recipe, suitable for compilation with Nuitka.
     """
     recipe: RecipeInfo = recipe_registry.get(recipe_name)
     if recipe is None:
@@ -133,6 +133,14 @@ This is a standalone executable that can run only predefined services:
 """
 
 from __future__ import annotations
+
+# Set SATURNIN_HOME to directory where this script is located
+# It's important to do it here before saturnin.base.directory_scheme is initialized
+import os
+
+if 'SATURNIN_HOME' not in os.environ:
+    os.environ['SATURNIN_HOME'] = os.path.dirname(__file__)
+
 {exe_import}
 from firebird.base.protobuf import register_decriptor
 from saturnin.component.registry import service_registry

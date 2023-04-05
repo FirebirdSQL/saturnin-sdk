@@ -35,7 +35,7 @@ Funding = "https://www.firebirdsql.org/en/donate/"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
 [project.entry-points."saturnin.application"]
-"c4aa5f0b-74b7-55ea-8fc8-e3eb41335049" = "saturnin.examples.apps.print_file.api:APP_DESCRIPTOR"
+"826ecaca-d3b6-11ed-97b5-5c879cc92822" = "saturnin.examples.apps.print_file.api:APP_DESCRIPTOR"
 
 [tool.setuptools]
 zip-safe = true

@@ -33,16 +33,15 @@
 
 """Saturnin examples - API for Print text file application
 
-This sample application prints text files with optional syntax highlight.
+This sample application prints a text file on screen with optional syntax highlight.
 """
 
 from __future__ import annotations
 import uuid
 from saturnin.base import VENDOR_UID, ApplicationDescriptor
 
-# OID: iso.org.dod.internet.private.enterprise.firebird.butler.platform.saturnin.application.print_file
-APP_OID: str = '1.3.6.1.4.1.53446.1.1.0.4.1'
-APP_UID: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_OID, APP_OID)
+# It's not an official application, so we can use any UUID constant
+APP_UID: uuid.UUID = uuid.UUID('826ecaca-d3b6-11ed-97b5-5c879cc92822')
 APP_VERSION: str = '0.1.0'
 
 # Application description

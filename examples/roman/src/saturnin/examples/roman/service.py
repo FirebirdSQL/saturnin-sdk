@@ -31,7 +31,7 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin SDK examples - Sample ROMAN service (classic version)
+"""Saturnin SDK examples - Sample ROMAN service
 
 ROMAN service returns data frames with arabic numbers replaced with Roman numbers.
 

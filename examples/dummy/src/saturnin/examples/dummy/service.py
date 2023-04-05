@@ -30,6 +30,7 @@
 #
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
+# pylint: disable=W0201
 
 """Saturnin SDK examples - Dummy microservice
 
@@ -60,8 +61,8 @@ class MicroDummySvc(MicroService):
         get_logger(self).info("Initialization...")
         self._fail_on: FailOn = config.fail_on.value
         get_logger(self).info("{fail_on=}", fail_on=self._fail_on.value)
-        self._schedule: List[int] = config.schedule.value
-        get_logger(self).info("{schedule=}", schedule=self._schedule)
+        self._stop_after: List[int] = config.stop_after.value
+        get_logger(self).info("{schedule=}", schedule=self._stop_after)
         if self._fail_on is FailOn.INIT:
             raise Error("Service configured to fail")
     def aquire_resources(self) -> None:
@@ -86,9 +87,8 @@ class MicroDummySvc(MicroService):
         get_logger(self).info("Starting activities...")
         if self._fail_on is FailOn.ACTIVITY_START:
             raise Error("Service configured to fail")
-        if self._schedule:
-            for delay in self._schedule:
-                self.schedule(partial(self.action, delay), delay)
+        if self._stop_after:
+            self.schedule(partial(self.action, self._stop_after), self._stop_after)
     def stop_activities(self) -> None:
         """Stop component activities.
         """
@@ -99,6 +99,5 @@ class MicroDummySvc(MicroService):
         """Scheduled action.
         """
         get_logger(self).info("Scheduled action, {delay=}", delay=delay)
-        #sleep(1.5)
         if not self._heap:
             self.stop.set()

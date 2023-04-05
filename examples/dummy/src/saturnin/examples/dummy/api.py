@@ -43,7 +43,7 @@ from __future__ import annotations
 import uuid
 from enum import Enum, auto
 from functools import partial
-from firebird.base.config import EnumOption, ListOption
+from firebird.base.config import EnumOption, IntOption
 from saturnin.base import (create_config, VENDOR_UID, ComponentConfig, AgentDescriptor,
                            ServiceDescriptor)
 
@@ -68,11 +68,13 @@ class DummyConfig(ComponentConfig):
     """
     def __init__(self, name: str):
         super().__init__(name)
+        #: Stage when dummy should raise an exception
         self.fail_on: EnumOption = \
             EnumOption('fail_on', FailOn, "Stage when dummy should raise an exception",
                        default=FailOn.NEVER)
-        self.schedule: ListOption = \
-            ListOption('schedule', int, "Delays for dummy scheduled actions", default=list())
+        #: Stop service after specified number of ms
+        self.stop_after: IntOption = \
+            IntOption('stop_after', int, "Stop service after specified number of ms", default=list())
 
 # Service description
 
