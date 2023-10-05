@@ -1,4 +1,6 @@
-#coding:utf-8
+# SPDX-FileCopyrightText: 2023-present The Firebird Project <www.firebirdsql.org>
+#
+# SPDX-License-Identifier: MIT
 #
 # PROGRAM/MODULE: Saturnin examples
 # FILE:           saturnin/examples/apps/print_file/api.py

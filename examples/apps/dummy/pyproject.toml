@@ -1,16 +1,18 @@
 [build-system]
-requires = ["setuptools >= 53.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "saturnin-example-app-dummy"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Test dummy application"
 readme = "README.rst"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-authors = [{ name = "Pavel Císař", email = "pcisar@users.sourceforge.net"}]
-keywords = ["text", "filter", "micro"]
+authors = [
+  { name = "Pavel Cisar", email = "pcisar@users.sourceforge.net"},
+]
+keywords = ["Saturnin", "example", "application"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -30,12 +32,23 @@ dependencies = [
 [project.urls]
 Home = "https://github.com/FirebirdSQL/saturnin-sdk"
 Documentation = "https://saturnin-sdk.rtfd.io"
-"Bug Reports" = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
-Funding = "https://www.firebirdsql.org/en/donate/"
+Issues = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
+Funding = "https://github.com/sponsors/pcisar"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
 [project.entry-points."saturnin.application"]
 "c7463ede-17f2-59e5-9fd0-43a3e39beccb" = "saturnin.examples.apps.dummy.api:APP_DESCRIPTOR"
 
-[tool.setuptools]
-zip-safe = true
+[tool.hatch.version]
+path = "src/saturnin/examples/apps/dummy/api.py"
+pattern = "(?i)^(APP_VERSION)(: *str)? *= *([\\'\"])v?(?P<version>.+?)\\3"
+
+[tool.hatch.build.targets.sdist]
+include = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/saturnin"]
+
+[tool.hatch.envs.default]
+dependencies = [
+]

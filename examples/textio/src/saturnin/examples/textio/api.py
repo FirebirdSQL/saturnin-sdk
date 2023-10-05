@@ -1,4 +1,6 @@
-#coding:utf-8
+# SPDX-FileCopyrightText: 2019-present The Firebird Project <www.firebirdsql.org>
+#
+# SPDX-License-Identifier: MIT
 #
 # PROGRAM/MODULE: Saturnin SDK examples
 # FILE:           textio/api.py
@@ -107,6 +109,6 @@ SERVICE_DESCRIPTOR: ServiceDescriptor = \
                       api=[],
                       description="Sample TEXTIO microservice",
                       facilities=[],
-                      factory=f'saturnin.examples.textio.service:MicroTextIOSvc',
+                      factory='saturnin.examples.textio.service:MicroTextIOSvc',
                       config=partial(create_config, TextIOConfig, SERVICE_UID,
                                      f'{SERVICE_AGENT.name}_service'))

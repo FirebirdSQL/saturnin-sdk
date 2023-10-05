@@ -1,15 +1,17 @@
 [build-system]
-requires = ["setuptools >= 53.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "saturnin-example-dummy"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Test dummy microservice"
 readme = "README.rst"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-authors = [{ name = "Pavel Císař", email = "pcisar@users.sourceforge.net"}]
+authors = [
+  { name = "Pavel Cisar", email = "pcisar@users.sourceforge.net"},
+]
 keywords = ["text", "filter", "micro"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -30,12 +32,23 @@ dependencies = [
 [project.urls]
 Home = "https://github.com/FirebirdSQL/saturnin-sdk"
 Documentation = "https://saturnin-sdk.rtfd.io"
-"Bug Reports" = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
-Funding = "https://www.firebirdsql.org/en/donate/"
+Issues = "https://github.com/FirebirdSQL/saturnin-sdk/issues"
+Funding = "https://github.com/sponsors/pcisar"
 Source = "https://github.com/FirebirdSQL/saturnin-sdk"
 
 [project.entry-points."saturnin.service"]
 "94e3b9e2-5acf-528b-8922-f7d1ccd39cdd" = "saturnin.examples.dummy.api:SERVICE_DESCRIPTOR"
 
-[tool.setuptools]
-zip-safe = true
+[tool.hatch.version]
+path = "src/saturnin/examples/dummy/api.py"
+pattern = "(?i)^(SERVICE_VERSION)(: *str)? *= *([\\'\"])v?(?P<version>.+?)\\3"
+
+[tool.hatch.build.targets.sdist]
+include = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/saturnin"]
+
+[tool.hatch.envs.default]
+dependencies = [
+]
