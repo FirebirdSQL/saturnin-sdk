@@ -2,6 +2,13 @@
 Changelog
 #########
 
+Version 0.9.0
+=============
+
+- Build system changed from setuptools to hatch
+- Update dependency to saturnin >=0.9.0
+- Package version is now defined in `saturnin.sdk.__about__.py` (`__version__`)
+
 Version 0.8.0
 =============
 
