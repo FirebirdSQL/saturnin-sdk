@@ -33,19 +33,30 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin SDK examples - API for sample TEXTIO microservice
+"""Saturnin SDK examples - API definitions for the sample TEXTIO microservice.
 
-The TEXTIO microservice transfers data between a file and a Data Pipe.
+This module defines the configuration (`TextIOConfig`, `FileOpenMode`), and descriptors
+for the TEXTIO microservice. The microservice is designed to transfer data
+between a specified file and a Saturnin Data Pipe.
 """
 
 from __future__ import annotations
+
 from enum import IntEnum, auto
-from uuid import UUID
 from functools import partial
-from firebird.base.config import (MIME, StrOption, EnumOption,  IntOption,
-                                  BoolOption, ZMQAddressOption, MIMEOption)
-from saturnin.base import (create_config, VENDOR_UID, Error, ComponentConfig, AgentDescriptor,
-                           ServiceDescriptor, SocketMode)
+from uuid import UUID
+
+from saturnin.base import (
+    VENDOR_UID,
+    AgentDescriptor,
+    ComponentConfig,
+    Error,
+    ServiceDescriptor,
+    SocketMode,
+    create_config,
+)
+
+from firebird.base.config import MIME, BoolOption, EnumOption, IntOption, MIMEOption, StrOption, ZMQAddressOption
 
 # It's not an official service, so we can use any UUID constant
 SERVICE_UID: UUID = UUID('7fe7a9fe-d60b-11e9-ad9f-5404a6a1fd6e')
@@ -62,7 +73,12 @@ class FileOpenMode(IntEnum):
     RENAME = auto()
 
 class TextIOConfig(ComponentConfig):
-    """TextIO service configuration."""
+    """Configuration options for the TEXTIO microservice.
+
+    Defines settings related to file operations (filename, mode, format)
+    and Data Pipe interactions (address, mode, format, batch size, etc.),
+    allowing flexible data transfer between files and pipes.
+    """
     def __init__(self, name: str):
         super().__init__(name)
         self.stop_on_close: BoolOption = \
@@ -89,7 +105,11 @@ class TextIOConfig(ComponentConfig):
             MIMEOption('file_format', "File data format specification",
                        required=True, default=MIME('text/plain;charset=utf-8'))
     def validate(self) -> None:
-        """Extended validation."""
+        """Performs extended validation of the configuration.
+
+        Ensures that standard I/O streams (stdin, stdout, stderr) are only used
+        with compatible file modes (i.e., READ for stdin, WRITE for stdout/stderr).
+        """
         super().validate()
         if (self.filename.value.lower() in ['stdin', 'stdout', 'stderr'] and
             self.file_mode.value not in [FileOpenMode.WRITE, FileOpenMode.READ]):

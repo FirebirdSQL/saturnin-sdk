@@ -33,13 +33,16 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin examples - API for Test application
+"""Saturnin examples - API definitions for the Dummy Test application.
 
-This application is for internal development purposes.
+This module defines constants (like OID, UID, version) and the `ApplicationDescriptor`
+for the dummy test application, which is used for internal development and testing purposes.
 """
 
 from __future__ import annotations
+
 import uuid
+
 from saturnin.base import VENDOR_UID, ApplicationDescriptor
 
 # OID: iso.org.dod.internet.private.enterprise.firebird.butler.platform.saturnin.application.dummy
@@ -56,6 +59,5 @@ APP_DESCRIPTOR: ApplicationDescriptor = \
                           vendor_uid=VENDOR_UID,
                           classification='test/dummy',
                           description="Test dummy application",
-                          factory='saturnin.examples.apps.dummy.application:dummy_app',
-                          config='saturnin.examples.apps.dummy.application:create_config'
+                          cli_command='saturnin.examples.apps.dummy.application:dummy_app'
                           )

@@ -7,7 +7,7 @@ name = "saturnin-example-dummy"
 dynamic = ["version"]
 description = "Test dummy microservice"
 readme = "README.rst"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
   { name = "Pavel Cisar", email = "pcisar@users.sourceforge.net"},
@@ -17,16 +17,15 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     ]
 dependencies = [
-    "saturnin>=0.8.0"
+    "saturnin>=0.10.0"
     ]
 
 [project.urls]

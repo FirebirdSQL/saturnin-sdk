@@ -53,31 +53,57 @@ and writer microservices).
 """
 
 from __future__ import annotations
-from typing import IO, cast
+
 import os
-from firebird.base.logging import get_logger
-from saturnin.base import StopError, ZMQAddress, MIME, \
-     Direction, SocketMode, PipeSocket, Channel, DealerChannel, Outcome, Session, Message
+from typing import IO, cast
+
+from saturnin.base import (
+    MIME,
+    Channel,
+    DealerChannel,
+    Direction,
+    Message,
+    Outcome,
+    PipeSocket,
+    Session,
+    SocketMode,
+    StopError,
+    ZMQAddress,
+)
 from saturnin.component.micro import MicroService
-from saturnin.protocol.fbdp import ErrorCode, FBDPServer, FBDPClient, \
-     FBDPSession, FBDPMessage
+from saturnin.protocol.fbdp import ErrorCode, FBDPClient, FBDPMessage, FBDPServer, FBDPSession
+
+from firebird.base.logging import get_logger
+
 from .api import FileOpenMode, TextIOConfig
 
 PIPE_CHN = 'pipe'
 
 class _Session(FBDPSession):
-    """Extended FBDP session.
+    """Extended FBDP session for the TEXTIO microservice.
+
+    This session stores the character set (`charset`) and error handling strategy (`errors`)
+    to be used for text encoding and decoding during data transfer.
     """
     def __init__(self):
         super().__init__()
         self.charset: str = None
         self.errors: str = None
+        # This overrides FBDPSession.data_format (str | None) to allow storing MIME object
+        self.data_format: MIME | str | None = None
 
 class MicroTextIOSvc(MicroService):
     """Implementation of TEXTIO microservice."""
     SYSIO = ('stdin', 'stdout', 'stderr')
+    pipe_socket: PipeSocket | None = None
+    file: IO | None = None
     def _open_file(self):
-        """Open the input file."""
+        """Opens the configured file based on `filename`, `file_mode`, and `file_format`.
+
+        Handles special filenames like 'stdin', 'stdout', 'stderr', and file renaming
+        if `file_mode` is `FileOpenMode.RENAME` and the file exists.
+        Sets `self.file` to the opened file stream.
+        """
         self._close_file()
         if self.filename.lower() in self.SYSIO:
             fspec = self.SYSIO.index(self.filename.lower())
@@ -112,12 +138,17 @@ class MicroTextIOSvc(MicroService):
             raise StopError(f"Failed to open file [mode:{self.file_mode.name}]",
                             code = ErrorCode.ERROR) from exc
     def _close_file(self) -> None:
-        """Close the input file if necessary."""
+        """Closes the currently open file stream (`self.file`) if it exists.
+        """
         if self.file:
             self.file.close()
             self.file = None
     def initialize(self, config: TextIOConfig) -> None:
-        """Verify configuration and assemble component structural parts.
+        """Initializes the service, verifies configuration, and sets up communication channels.
+
+        Reads settings from `TextIOConfig`, determines if the service acts as a reader or writer,
+        configures the FBDP protocol (client or server based on `pipe_mode`), and creates
+        the necessary ZMQ channel for the data pipe.
         """
         super().initialize(config)
         get_logger(self).info("Initialization...")
@@ -191,22 +222,24 @@ class MicroTextIOSvc(MicroService):
                                                 wait_for=Direction.IN,
                                                 sock_opts={'rcvhwm': rcvhwm,
                                                            'sndhwm': sndhwm,})
-        chn.protocol.log_context = self.logging_id
     def aquire_resources(self) -> None:
         """Aquire resources required by component (open files, connect to other services etc.).
 
-        Must raise an exception when resource aquisition fails.
+        If configured as a data pipe client (`SocketMode.CONNECT`), this method connects
+        to the pipe server, sends an OPEN request, and initializes session attributes.
+        It then calls `_open_file()` to open the configured local file.
         """
         get_logger(self).info("Aquiring resources...")
         # Connect to the data pipe
         if self.pipe_mode == SocketMode.CONNECT:
             chn: Channel = self.mngr.channels[PIPE_CHN]
             session = chn.connect(self.pipe_address)
+            # Type hint for session was added in previous response
             # OPEN the data pipe connection, this also fills session attributes
             cast(FBDPClient, chn.protocol).send_open(chn, session, self.data_pipe,
                                                      self.pipe_socket, self.file_format)
             # We work with MIME formats, so we'll convert the format specification to MIME
-            session.data_format = MIME(session.data_format)
+            session.data_format = MIME(session.data_format) # type: ignore[attr-defined]
             session.charset = session.data_format.params.get('charset', 'ascii')
             session.errors = session.data_format.params.get('errors', 'strict')
             self._open_file()
@@ -214,6 +247,9 @@ class MicroTextIOSvc(MicroService):
         """Release resources aquired by component (close files, disconnect from other services etc.)
         """
         get_logger(self).info("Releasing resources...")
+        # Note: File closing is primarily handled by _close_file(), which is called
+        # by handle_pipe_closed() or when the service stops.
+        # This method focuses on closing active data pipe sessions.
         # CLOSE all active data pipe sessions
         chn: Channel = self.mngr.channels[PIPE_CHN]
         # send_close() will discard session, so we can't iterate over sessions.values() directly
@@ -231,13 +267,16 @@ class MicroTextIOSvc(MicroService):
         """Stop component activities.
         """
         get_logger(self).info("Stopping activities...")
+    # Type hint for session was added in previous response
     def handle_exception(self, channel: Channel, session: Session, msg: Message, exc: Exception) -> None:
-        """Event handler called by `.handle_msg()` on exception in message handler.
+        """Event handler called by FBDP protocol on an unhandled exception in a message handler.
+
+        Sets the service outcome to `Outcome.ERROR` and stores the exception details.
         """
         self.outcome = Outcome.ERROR
         self.details = exc
     # FBDP server only
-    def handle_accept_client(self, channel: Channel, session: _Session) -> None:
+    def handle_accept_client(self, channel: Channel, session: FBDPSession) -> None:
         """Handler is executed when client connects to the data pipe via OPEN message.
 
         Arguments:
@@ -265,7 +304,7 @@ class MicroTextIOSvc(MicroService):
         session.errors = session.data_format.params.get('errors', 'strict')
         # Client reqeast is ok, we'll open the file we are configured to work with.
         self._open_file()
-    def handle_get_ready(self, channel: Channel, session: _Session) -> int:
+    def handle_get_ready(self, channel: Channel, session: FBDPSession) -> int:
         """Handler is executed to obtain the transmission batch size for the client.
 
         Arguments:
@@ -286,7 +325,7 @@ class MicroTextIOSvc(MicroService):
             so this handler always returns -1.
         """
         return -1
-    def handle_schedule_ready(self, channel: Channel, session: _Session) -> None:
+    def handle_schedule_ready(self, channel: Channel, session: FBDPSession) -> None:
         """The handler is executed in order to send the READY message to the client later.
 
         Arguments:
@@ -302,7 +341,7 @@ class MicroTextIOSvc(MicroService):
         """
         raise StopError("'on_schedule_ready' should never be called", code=ErrorCode.INTERNAL_ERROR)
     # FBDP client only
-    def handle_server_ready(self, channel: Channel, session: _Session, batch_size: int) -> int:
+    def handle_server_ready(self, channel: Channel, session: FBDPSession, batch_size: int) -> int:
         """Handler is executed to negotiate the transmission batch size with server.
 
         Arguments:
@@ -335,7 +374,7 @@ class MicroTextIOSvc(MicroService):
             raise StopError("Batch size exceeds 10000", code=ErrorCode.ERROR)
         return -1
     # FBDP common
-    def handle_accept_data(self, channel: Channel, session: _Session, data: bytes) -> None:
+    def handle_accept_data(self, channel: Channel, session: FBDPSession, data: bytes) -> None:
         """Handler is executed for CONSUMER when DATA message is received for PIPE_INPUT.
 
         Arguments:
@@ -359,7 +398,7 @@ class MicroTextIOSvc(MicroService):
             self.file.flush()
         except UnicodeError as exc:
             raise StopError("UnicodeError", code=ErrorCode.INVALID_DATA) from exc
-    def handle_produce_data(self, channel: Channel, session: _Session, msg: FBDPMessage) -> None:
+    def handle_produce_data(self, channel: Channel, session: FBDPSession, msg: FBDPMessage) -> None:
         """Handler is executed for PRODUCER when DATA message should be sent to PIPE_OUTPUT.
 
         Arguments:
@@ -392,7 +431,7 @@ class MicroTextIOSvc(MicroService):
                 raise StopError("UnicodeError", code=ErrorCode.INVALID_DATA) from exc
         else:
             raise StopError('OK', code=ErrorCode.OK)
-    def handle_data_confirmed(self, channel: Channel, session: _Session, type_data: int) -> None:
+    def handle_data_confirmed(self, channel: Channel, session: FBDPSession, type_data: int) -> None:
         """Handler is executed for PRODUCER when ACK_REPLY on sent DATA is received.
 
         Arguments:
@@ -408,9 +447,14 @@ class MicroTextIOSvc(MicroService):
             ACK_REQ on DATA messages. So we raise an error uncoditionally here.
         """
         raise StopError("'on_data_confirmed' should never be called", code=ErrorCode.INTERNAL_ERROR)
-    def handle_pipe_closed(self, channel: Channel, session: _Session, msg: FBDPMessage,
-                           exc: Exception=None) -> None:
+    def handle_pipe_closed(self, channel: Channel, session: FBDPSession, msg: FBDPMessage,
+                           exc: Exception | None=None) -> None:
         """Called when CLOSE message is received or sent.
+
+        This handler ensures the associated local file (`self.file`) is closed.
+        If an exception `exc` is provided (indicating an error leading to the pipe closure),
+        it updates the service's outcome to `Outcome.ERROR`.
+        If `stop_on_close` is configured, it signals the service to stop.
 
         Arguments:
             channel: Channel associated with data pipe.

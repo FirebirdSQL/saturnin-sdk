@@ -33,13 +33,17 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin examples - API for Print text file application
+"""Saturnin examples - API definitions for the Print Text File application.
 
-This sample application prints a text file on screen with optional syntax highlight.
+This module defines constants (UID, version) and the `ApplicationDescriptor`
+for the "Print File" application. The application itself prints a text file to the
+screen, with optional syntax highlighting.
 """
 
 from __future__ import annotations
+
 import uuid
+
 from saturnin.base import VENDOR_UID, ApplicationDescriptor
 
 # It's not an official application, so we can use any UUID constant
@@ -55,6 +59,6 @@ APP_DESCRIPTOR: ApplicationDescriptor = \
                           vendor_uid=VENDOR_UID,
                           classification='text/print',
                           description="Print text file application",
-                          factory='saturnin.examples.apps.print_file.application:print_file',
-                          config='saturnin.examples.apps.print_file.application:create_config'
+                          cli_command='saturnin.examples.apps.print_file.application:print_file',
+                          recipe_factory='saturnin.examples.apps.print_file.application:create_recipe'
                           )

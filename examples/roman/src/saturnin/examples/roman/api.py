@@ -33,9 +33,10 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin SDK examples - ROMAN service API
+"""Saturnin SDK examples - API definitions for the ROMAN service.
 
-ROMAN service returns text data frames with arabic numbers replaced with Roman numbers.
+This module defines the API interface (`RomanAPI`), configuration, and descriptors
+for the ROMAN service. The service converts Arabic numerals in text data to Roman numerals.
 
 Supported requests:
 
@@ -43,10 +44,11 @@ Supported requests:
 """
 
 from __future__ import annotations
-from uuid import UUID
+
 from functools import partial
-from saturnin.base import (create_config, VENDOR_UID, AgentDescriptor, ServiceDescriptor,
-                           ButlerInterface)
+from uuid import UUID
+
+from saturnin.base import VENDOR_UID, AgentDescriptor, ButlerInterface, ServiceDescriptor, create_config
 from saturnin.component.service import ServiceConfig
 
 # It's not an official service, so we can use any UUID constant
@@ -56,7 +58,9 @@ SERVICE_VERSION: str = '0.2.0'
 ROMAN_INTERFACE_UID: UUID = UUID('d0e35134-44af-11e9-b5b8-5404a6a1fd6e')
 
 class RomanAPI(ButlerInterface):
-    """Roman Service Request Codes.
+    """Defines the interface and request codes for the ROMAN service.
+
+    Currently, it includes the `ROMAN` request code used to ask the service to perform number conversion.
     """
     ROMAN = 1
     @classmethod

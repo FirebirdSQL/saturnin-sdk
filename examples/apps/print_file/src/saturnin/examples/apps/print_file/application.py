@@ -33,27 +33,32 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin examples - Print text file application
+"""Saturnin examples - Implementation of the Print Text File application.
 
-This sample application prints a text file on screen with optional syntax highlight.
+This module provides the `print_file` command-line application, which prints a specified
+text file to the console, optionally applying syntax highlighting using Pygments.
+It demonstrates the use of Saturnin recipes and bundles to achieve its functionality.
 """
 
 from __future__ import annotations
-from typing import List
-from pathlib import Path
+
+import subprocess
 from configparser import ConfigParser, ExtendedInterpolation
 from contextlib import suppress
-import subprocess
+from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
+
 import typer
 from pygments.lexers import get_all_lexers, get_lexer_for_filename
 from rich.syntax import Syntax
-from saturnin.base import directory_scheme
-from saturnin.component.recipe import recipe_registry, RecipeInfo
-from saturnin.lib.console import console
 from saturnin._scripts.completers import path_completer
+from saturnin.base import directory_scheme
+from saturnin.component.recipe import RecipeInfo, recipe_registry
+from saturnin.lib.console import console
 
-def lexer_completer(ctx, args, incomplete) -> List:
+
+def lexer_completer(ctx, args, incomplete) -> list:
     """Click completer for Pygment lexer.
     """
     return list(sum((aliases for longname, aliases, patterns, mimetypes in get_all_lexers()),
@@ -63,11 +68,11 @@ app = typer.Typer(rich_markup_mode="markdown", help="Saturnin applications.")
 
 app.command()
 def print_file(ctx: typer.Context,
-               filename: Path=typer.Argument(..., help="File to be printed",
-                                             autocompletion=path_completer),
-               encoding: str=typer.Option('utf-8', help="File encoding"),
-               lexer: str=typer.Option(None, help="Syntax lexer",
-                                       autocompletion=lexer_completer)) -> None:
+               filename: Annotated[Path, typer.Argument(..., help="File to be printed",
+                                                        autocompletion=path_completer)],
+               encoding: Annotated[str, typer.Option(help="File encoding")]='utf-8',
+               lexer: Annotated[str| None, typer.Option(help="Syntax lexer",
+                                                  autocompletion=lexer_completer)]=None) -> None:
     """Sample application that prints a text file on screen with optional syntax highlight.
     """
     # The command name is the recipe name
@@ -92,15 +97,15 @@ def print_file(ctx: typer.Context,
             lexer = get_lexer_for_filename(filename).aliases[0]
     #
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         console.print(Syntax(result.stdout, lexer=lexer))
         if result.returncode != 0:
             console.print_error('Recipe execution failed')
     finally:
         cfg_file.unlink(missing_ok=True)
 
-def create_config() -> str:
-    """Returns configuration for dummy application.
+def create_recipe() -> str:
+    """Returns Saturnin recipe for print_file application.
     """
     return """[saturnin.recipe]
 recipe_type = bundle

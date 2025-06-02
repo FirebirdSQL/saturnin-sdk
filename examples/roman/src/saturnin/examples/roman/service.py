@@ -33,9 +33,10 @@
 # Contributor(s): Pavel Císař (original code)
 #                 ______________________________________.
 
-"""Saturnin SDK examples - Sample ROMAN service
+"""Saturnin SDK examples - Implementation of the sample ROMAN service.
 
-ROMAN service returns data frames with arabic numbers replaced with Roman numbers.
+This module provides the `RomanService` class, which implements a service that
+receives text data frames and returns them with Arabic numbers converted to Roman numerals.
 
 Supported requests:
 
@@ -43,12 +44,15 @@ Supported requests:
 """
 
 from __future__ import annotations
+
 from itertools import groupby
+
 from saturnin.base import Channel
-from saturnin.protocol.fbsp import FBSPService, FBSPSession, FBSPMessage, \
-     ErrorCode
 from saturnin.component.service import Service
+from saturnin.protocol.fbsp import ErrorCode, FBSPMessage, FBSPService, FBSPSession
+
 from .api import RomanAPI
+
 
 def arabic2roman(line: str) -> bytes:
     """Returns UTF-8 bytestring with arabic numbers replaced with Roman ones.
@@ -66,9 +70,9 @@ def arabic2roman(line: str) -> bytes:
                 num -= val[i]
             i += 1
         return roman_num
-    def isdigit(char):
+    def isdigit(char: str) -> bool:
         return char.isdigit()
-    def replace(convert, segment):
+    def replace(convert: bool, segment: str) -> str:
         return i2r(int(segment)) if convert else segment
     # An one-liner to please Pythonistas and confuse others
     return bytes(''.join(replace(convert, segment) for convert, segment in
@@ -82,6 +86,8 @@ class RomanService(Service):
     def register_api_handlers(self, service: FBSPService) -> None:
         """Called by `initialize()` for registration of service API handlers and FBSP
         service event handlers.
+
+        This method registers the `handle_roman` method to handle `RomanAPI.ROMAN` requests.
         """
         service.register_api_handler(RomanAPI.ROMAN, self.handle_roman)
     def handle_roman(self, channel: Channel, session: FBSPSession, msg: FBSPMessage,
@@ -102,4 +108,3 @@ class RomanService(Service):
         except UnicodeDecodeError:
             protocol.send_error(session, msg, ErrorCode.BAD_REQUEST,
                                         "Data must be UTF-8 bytestrings")
-

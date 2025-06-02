@@ -7,7 +7,7 @@ Saturnin SDK - Development tools and examples for Saturnin
 
    For installation instructions, see the Saturnin_ documentation.
 
-.. note:: Requires Python 3.8+
+.. note:: Requires Python 3.11+
 
 .. note::
 
